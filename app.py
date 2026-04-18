@@ -549,6 +549,10 @@ def admin_delete_user(uid):
         return redirect(url_for("admin"))
     user = User.query.get_or_404(uid)
     log.info(f"ADMIN DELETE user  user_id={uid}  email={user.email}")
+    if user.seller_profile:
+        db.session.delete(user.seller_profile)
+    for s in user.searches:
+        db.session.delete(s)
     for c in user.conversations_as_buyer + user.conversations_as_seller:
         db.session.delete(c)
     for t in user.transactions_as_buyer + user.transactions_as_seller:

@@ -5,12 +5,8 @@
   <h1>Find local services,<br>without the hassle.</h1>
   <p>Describe what you need in plain language. We match you with the right professional instantly.</p>
   <div class="hero-actions">
-    {% if user %}
-      {% if user.role == 'seller' %}
-        <a href="{{ url_for('seller_dashboard') }}" class="btn btn-primary">Go to dashboard</a>
-      {% else %}
-        <a href="{{ url_for('buyer_search') }}" class="btn btn-primary">Find a service</a>
-      {% endif %}
+    {% if session.get('user_id') %}
+      <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Go to dashboard</a>
     {% else %}
       <a href="{{ url_for('register') }}?role=buyer" class="btn btn-primary">I need a service</a>
       <a href="{{ url_for('register') }}?role=seller" class="btn btn-blue">I offer a service</a>

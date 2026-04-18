@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <h1>Admin access</h1>
+  <p class="subtitle">Enter the admin password to continue.</p>
+  <form method="POST" class="card">
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" name="password" required autofocus>
+    </div>
+    <button type="submit" class="btn btn-primary btn-full">Enter</button>
+  </form>
+</div>
+{% endblock %}

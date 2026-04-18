@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<div class="hero">
+  <h1>Find local services,<br>without the hassle.</h1>
+  <p>Describe what you need in plain language. We match you with the right professional instantly.</p>
+  <div class="hero-actions">
+    {% if session.get('user_id') %}
+      <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Go to dashboard</a>
+    {% else %}
+      <a href="{{ url_for('register') }}?role=buyer" class="btn btn-primary">I need a service</a>
+      <a href="{{ url_for('register') }}?role=seller" class="btn btn-blue">I offer a service</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="container" style="padding-bottom:32px;">
+  <div class="role-grid">
+    <div class="role-card">
+      <h3>For buyers</h3>
+      <p>Write what you need in plain text. Our AI finds the right professionals near you.</p>
+    </div>
+    <div class="role-card">
+      <h3>For sellers</h3>
+      <p>Describe your business once. Get found by customers looking for exactly what you offer.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

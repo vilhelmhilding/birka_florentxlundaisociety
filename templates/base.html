@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Birka{% endblock %} — Local Services Marketplace</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<nav>
+  <div class="inner">
+    <a class="logo" href="{{ url_for('index') }}">ᛒᛁᚱᚴᛅ</a>
+    <div class="nav-links">
+      {% if session.get('user_id') %}
+        <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        <a href="{{ url_for('chat_list') }}" style="position:relative;">
+          Messages
+          {% if unread_count %}
+            <span style="position:absolute;top:-6px;right:-14px;background:var(--red);color:#fff;border-radius:10px;font-size:.65rem;font-weight:700;padding:1px 5px;line-height:1.4;">{{ unread_count }}</span>
+          {% endif %}
+        </a>
+        <a href="{{ url_for('logout') }}">Sign out</a>
+      {% else %}
+        <a href="{{ url_for('login') }}">Sign in</a>
+        <a href="{{ url_for('register') }}" class="btn btn-primary" style="padding:7px 16px;font-size:.85rem;">Get started</a>
+      {% endif %}
+    </div>
+  </div>
+</nav>
+
+<main>
+  <div class="container">
+    {% with msgs = get_flashed_messages() %}
+      {% for m in msgs %}
+        <div class="flash" style="margin-top:16px;">{{ m }}</div>
+      {% endfor %}
+    {% endwith %}
+  </div>
+  {% block content %}{% endblock %}
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-logo">ᛒᛁᚱᚴᛅ</span>
+    <div class="footer-links">
+      <a href="{{ url_for('index') }}">Home</a>
+      {% if session.get('user_id') %}
+        <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        <a href="{{ url_for('chat_list') }}">Messages</a>
+      {% else %}
+        <a href="{{ url_for('login') }}">Sign in</a>
+        <a href="{{ url_for('register') }}">Get started</a>
+      {% endif %}
+    </div>
+    <span class="footer-copy">© 2026 Birka</span>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Register{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <h1>Create account</h1>
+  <p class="subtitle">Join the marketplace in seconds.</p>
+
+  <form method="POST">
+    <div class="form-group">
+      <div class="role-toggle">
+        <input type="radio" name="role" id="r-buyer" value="buyer"
+          {% if request.args.get('role') != 'seller' %}checked{% endif %}>
+        <label for="r-buyer">I'm a buyer</label>
+        <input type="radio" name="role" id="r-seller" value="seller"
+          {% if request.args.get('role') == 'seller' %}checked{% endif %}>
+        <label for="r-seller">I'm a seller</label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Full name</label>
+      <input type="text" name="name" required placeholder="Jane Smith">
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" name="email" required placeholder="jane@example.com">
+    </div>
+    <div class="form-group">
+      <label>Phone</label>
+      <input type="tel" name="phone" placeholder="+46 70 000 00 00">
+    </div>
+    <div class="form-group">
+      <label>City</label>
+      <input type="text" name="city" placeholder="Stockholm">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" name="password" required minlength="6" placeholder="Min. 6 characters">
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-full">Create account</button>
+  </form>
+
+  <p style="margin-top:18px;font-size:.875rem;color:var(--muted);text-align:center;">
+    Already have an account? <a href="{{ url_for('login') }}">Sign in</a>
+  </p>
+</div>
+{% endblock %}

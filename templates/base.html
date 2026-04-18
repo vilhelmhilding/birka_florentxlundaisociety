@@ -4,33 +4,61 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Birka{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 <nav>
-  <a class="brand" href="/">Birka</a>
-  <div class="links">
-    {% if user %}
-      <span class="muted">{{ user.name }}</span>
-      {% if user.role == 'seller' %}
-        <a href="{{ url_for('seller_setup') }}">Edit Profile</a>
+  <div class="inner">
+    <a class="logo" href="/">Birka</a>
+    <div class="nav-links">
+      {% if user %}
+        <span style="color:var(--muted);font-size:.875rem;padding:6px 12px;">{{ user.name }}</span>
+        {% if user.role == 'seller' %}
+          <a href="{{ url_for('seller_setup') }}">Edit Profile</a>
+        {% endif %}
+        <a href="{{ url_for('logout') }}">Sign out</a>
+      {% else %}
+        <a href="{{ url_for('login') }}">Sign in</a>
+        <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">Get started</a>
       {% endif %}
-      <a href="{{ url_for('logout') }}">Sign out</a>
-    {% else %}
-      <a href="{{ url_for('login') }}">Sign in</a>
-      <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">Get started</a>
-    {% endif %}
+    </div>
   </div>
 </nav>
 
-{% with msgs = get_flashed_messages() %}
-  {% if msgs %}
-    <div style="padding: .6rem 1.5rem;">
-      {% for m in msgs %}<div class="alert alert-error">{{ m }}</div>{% endfor %}
-    </div>
-  {% endif %}
-{% endwith %}
+<main>
+  <div class="container">
+    {% with msgs = get_flashed_messages() %}
+      {% if msgs %}
+        {% for m in msgs %}
+          <div class="flash" style="margin-top:16px;">{{ m }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+  </div>
+  {% block content %}{% endblock %}
+</main>
 
-{% block content %}{% endblock %}
+<footer>
+  <div class="footer-inner">
+    <span class="footer-logo">Birka</span>
+    <div class="footer-links">
+      <a href="{{ url_for('index') }}">Home</a>
+      {% if user %}
+        {% if user.role == 'seller' %}
+          <a href="{{ url_for('seller_dashboard') }}">Dashboard</a>
+        {% else %}
+          <a href="{{ url_for('buyer_search') }}">Search</a>
+        {% endif %}
+      {% else %}
+        <a href="{{ url_for('login') }}">Sign in</a>
+        <a href="{{ url_for('register') }}">Get started</a>
+      {% endif %}
+    </div>
+    <span class="footer-copy">© 2026 Birka</span>
+  </div>
+</footer>
 </body>
 </html>

@@ -159,6 +159,17 @@ class ScrapeCache(db.Model):
     created_at = db.Column(db.DateTime, default=_utcnow)
 
 
+class MultiServiceBundle(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    raw_query = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+
+    buyer = db.relationship('User', foreign_keys=[buyer_id], backref='multi_bundles')
+    quote_requests = db.relationship('QuoteRequest', backref='bundle', lazy=True,
+                                     foreign_keys='QuoteRequest.bundle_id')
+
+
 class QuoteRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -166,6 +177,7 @@ class QuoteRequest(db.Model):
     cities = db.Column(db.Text, default='[]')  # JSON
     formatted_request = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=_utcnow)
+    bundle_id = db.Column(db.Integer, db.ForeignKey('multi_service_bundle.id'), nullable=True)
 
     buyer = db.relationship('User', foreign_keys=[buyer_id], backref='quote_requests')
     responses = db.relationship('QuoteResponse', back_populates='request', cascade='all, delete-orphan')

@@ -127,6 +127,44 @@ Default city (use only if no city found in query): {default_city}"""
         return {"service": None, "cities": [default_city] if default_city else [], "price_max": None, "requested_day": None}
 
 
+def parse_buyer_multi(query: str, default_city: str, existing: list[str]) -> dict:
+    """Like parse_buyer but extracts ALL services mentioned in the query.
+    Returns {services: [{service, price_max, requested_day}, ...], cities: [...], unrecognized_cities: [...]}
+    """
+    existing_str = ", ".join(existing) if existing else "(none yet)"
+    prompt = f"""You are a strict query mapper for a home and local services marketplace.
+
+Existing service categories: {existing_str}
+
+{CITY_RULES}
+{CATEGORY_RULES}
+
+From the buyer query below, extract ALL distinct services mentioned (e.g. "painter and electrician" → two services).
+1. services: JSON array — one object per distinct service:
+   - service: category string (reuse/create per rules), null if unclear
+   - price_max: integer SEK budget for this service (use shared budget if mentioned; null otherwise)
+   - requested_day: lowercase weekday if mentioned, null otherwise
+   If only one service is mentioned, return a single-element array.
+2. cities: JSON array of Swedish cities shared across all services. Use [default_city] if none mentioned.
+3. unrecognized_cities: cities that could not be matched. Empty array if all matched.
+
+Return ONLY valid JSON.
+Example: {{"services": [{{"service": "painter", "price_max": 5000, "requested_day": "sunday"}}, {{"service": "plumber", "price_max": null, "requested_day": "sunday"}}], "cities": ["Lund"], "unrecognized_cities": []}}
+
+Buyer query: {query}
+Default city (use only if no city found in query): {default_city}"""
+    try:
+        raw = _call(prompt)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        result = json.loads(raw)
+        log.debug(f"parse_buyer_multi LLM response: {raw}")
+        return result
+    except Exception as e:
+        log.error(f"parse_buyer_multi FAILED: {e}")
+        return {"services": [{"service": None, "price_max": None, "requested_day": None}],
+                "cities": [default_city] if default_city else [], "unrecognized_cities": []}
+
+
 def match_sellers(parsed: dict, sellers) -> dict:
     """
     Match on individual listings, not whole profiles.
@@ -306,6 +344,44 @@ Description:
     except Exception as e:
         log.error(f"extract_contact_info FAILED: {e}")
         return {}
+
+
+def analyze_photo_for_service(image_b64: str, media_type: str, default_city: str, existing: list[str]) -> dict:
+    """Use Claude Vision to identify what home/local service is needed from a photo."""
+    existing_str = ", ".join(existing) if existing else "(none yet)"
+    prompt = f"""You are a service identifier for a Swedish home and local services marketplace.
+
+Existing service categories: {existing_str}
+
+{CITY_RULES}
+{CATEGORY_RULES}
+
+Look at this image and determine what home or local service the buyer likely needs.
+
+Extract:
+1. service: the best matching service category (e.g. "painter", "plumber", "electrician", "cleaner"). Must be lowercase, 1-3 words, in English. Return null if the image clearly has nothing to do with a home or local service need.
+2. description: a 1-2 sentence plain-English description of what you see and why this service is needed.
+3. cities: JSON array of any Swedish cities visible or mentioned in the image. Use ["{default_city}"] if none found.
+
+Return ONLY valid JSON.
+Example: {{"service": "painter", "description": "The photo shows peeling paint on an interior wall that needs repainting.", "cities": ["{default_city}"]}}
+Unrecognizable example: {{"service": null, "description": "The image does not appear to show a service need.", "cities": ["{default_city}"]}}"""
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+                {"type": "text", "text": prompt}
+            ]}]
+        )
+        raw = msg.content[0].text.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        result = json.loads(raw)
+        log.debug(f"analyze_photo_for_service LLM response: {raw}")
+        return result
+    except Exception as e:
+        log.error(f"analyze_photo_for_service FAILED: {e}")
+        return {"service": None, "description": "Could not analyse the image.", "cities": [default_city] if default_city else []}
 
 
 def format_quote_response(raw_text: str, quote_body: str) -> tuple[str, int | None]:

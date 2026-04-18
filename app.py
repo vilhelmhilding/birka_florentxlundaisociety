@@ -3,8 +3,9 @@ import os
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response, stream_with_context
-from models import db, User, SellerProfile, Search, Conversation, Message, Transaction, QuoteRequest, QuoteResponse, get_existing_services
-from llm import parse_seller, parse_buyer, match_sellers, format_quote_request, format_quote_response, description_from_website, summarise_to_profile, extract_contact_info
+from models import db, User, SellerProfile, Search, Conversation, Message, Transaction, QuoteRequest, QuoteResponse, MultiServiceBundle, get_existing_services
+import base64
+from llm import parse_seller, parse_buyer, parse_buyer_multi, match_sellers, format_quote_request, format_quote_response, description_from_website, summarise_to_profile, extract_contact_info, analyze_photo_for_service
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -29,6 +30,7 @@ with app.app_context():
             "ALTER TABLE seller_profile ADD COLUMN website_page_count INTEGER DEFAULT 0",
             "ALTER TABLE seller_profile ADD COLUMN website_scraped_at DATETIME",
             "ALTER TABLE seller_profile ADD COLUMN contact_email TEXT",
+            "ALTER TABLE quote_request ADD COLUMN bundle_id INTEGER REFERENCES multi_service_bundle(id)",
         ]:
             try:
                 _conn.execute(_text(_stmt))
@@ -74,7 +76,7 @@ def log_exception(e):
 
 def current_user():
     uid = session.get("user_id")
-    return User.query.get(uid) if uid else None
+    return db.session.get(User, uid) if uid else None
 
 @app.context_processor
 def inject_unread():
@@ -181,7 +183,7 @@ def register():
                             _q.put({"type": "error", "message": "AI returned an empty description. Try again."})
                             return
                         _q.put({"type": "parsing"})
-                        _user = User.query.get(uid)
+                        _user = db.session.get(User, uid)
                         parsed = parse_seller(desc, "", get_existing_services())
                         _prof.raw_description = desc
                         cities = [c for c in (parsed.get("cities") or []) if c]
@@ -303,27 +305,70 @@ def dashboard():
     # buyer
     if request.method == "POST":
         query = request.form["query"].strip()
-        parsed = parse_buyer(query, user.city or "", get_existing_services())
+        multi = parse_buyer_multi(query, user.city or "", get_existing_services())
+        services = [s for s in (multi.get("services") or []) if s.get("service")]
+        cities = multi.get("cities") or ([user.city] if user.city else [])
+        unrecog = multi.get("unrecognized_cities") or []
+
         search = Search(
             buyer_id=user.id,
             raw_query=query,
-            mapped_service=parsed.get("service"),
-            city=parsed.get("city"),
-            price_max=parsed.get("price_max"),
+            mapped_service=services[0]["service"] if services else None,
+            city=cities[0] if cities else None,
+            price_max=services[0].get("price_max") if services else None,
         )
         db.session.add(search)
         db.session.commit()
-        sellers = User.query.filter_by(role="seller").join(SellerProfile).all()
-        matched = match_sellers(parsed, sellers)
-        session["last_search"] = {
-            "parsed": {**parsed, "_raw_query": query,
-                       "unrecognized_cities": parsed.get("unrecognized_cities") or []},
-            "by_city": {
-                city: [(s.id, listing, flags) for s, listing, flags in results]
-                for city, results in matched["by_city"].items()
-            },
-            "other": [(s.id, listing, flags) for s, listing, flags in matched["other"]],
-        }
+
+        sellers_all = User.query.filter_by(role="seller").join(SellerProfile).all()
+
+        if len(services) > 1:
+            # ── multi-service path ────────────────────────────────────────
+            svc_results = []
+            for svc in services:
+                svc_parsed = {"service": svc["service"], "cities": cities,
+                              "price_max": svc.get("price_max"),
+                              "requested_day": svc.get("requested_day"),
+                              "unrecognized_cities": unrecog}
+                matched = match_sellers(svc_parsed, sellers_all)
+                # collect ALL matched seller IDs for this service
+                quote_sids, seen_q = [], set()
+                for s, l, _ in ([item for r in matched["by_city"].values() for item in r]
+                                 + matched["other"]):
+                    if s.id not in seen_q:
+                        quote_sids.append(s.id)
+                        seen_q.add(s.id)
+                svc_results.append({
+                    "service": svc["service"],
+                    "price_max": svc.get("price_max"),
+                    "requested_day": svc.get("requested_day"),
+                    "quote_seller_ids": quote_sids,
+                    "by_city": {c: [(s.id, l, f) for s, l, f in r]
+                                for c, r in matched["by_city"].items()},
+                    "other": [(s.id, l, f) for s, l, f in matched["other"]],
+                })
+            session["last_multi_search"] = {
+                "raw_query": query, "cities": cities, "unrecognized_cities": unrecog,
+                "services": svc_results,
+            }
+            session.pop("last_search", None)
+        else:
+            # ── single-service path (existing behaviour) ──────────────────
+            session.pop("last_multi_search", None)
+            parsed = {
+                "service": services[0]["service"] if services else None,
+                "cities": cities,
+                "price_max": services[0].get("price_max") if services else None,
+                "requested_day": services[0].get("requested_day") if services else None,
+                "unrecognized_cities": unrecog,
+            }
+            matched = match_sellers(parsed, sellers_all)
+            session["last_search"] = {
+                "parsed": {**parsed, "_raw_query": query},
+                "by_city": {c: [(s.id, l, f) for s, l, f in r]
+                            for c, r in matched["by_city"].items()},
+                "other": [(s.id, l, f) for s, l, f in matched["other"]],
+            }
         return redirect(url_for("dashboard"))
 
     # GET — retrieve from session (keep until next search)
@@ -336,10 +381,10 @@ def dashboard():
     if last:
         search_data = last["parsed"]
         by_city = {
-            city: [(User.query.get(i), l, f) for i, l, f in results if User.query.get(i)]
+            city: [(db.session.get(User, i), l, f) for i, l, f in results if db.session.get(User, i)]
             for city, results in last.get("by_city", {}).items()
         }
-        other_results = [(User.query.get(i), l, f) for i, l, f in last.get("other", []) if User.query.get(i)]
+        other_results = [(db.session.get(User, i), l, f) for i, l, f in last.get("other", []) if db.session.get(User, i)]
         by_city = {city: _sort_results(results, sort) for city, results in by_city.items()}
         other_results = _sort_results(other_results, sort)
         all_local = _sort_results(
@@ -355,9 +400,46 @@ def dashboard():
         all_local = []
 
     quote_requests = (QuoteRequest.query
-                      .filter_by(buyer_id=user.id)
+                      .filter_by(buyer_id=user.id, bundle_id=None)
                       .order_by(QuoteRequest.created_at.desc())
                       .all())
+
+    multi_bundles = (MultiServiceBundle.query
+                     .filter_by(buyer_id=user.id)
+                     .order_by(MultiServiceBundle.created_at.desc())
+                     .all())
+
+    # Reconstruct multi-service search results from session
+    multi_search = {}
+    multi_services_data = []
+    last_multi = session.get("last_multi_search")
+    if last_multi:
+        multi_search = last_multi
+        for svc in last_multi.get("services", []):
+            by_city_r = {
+                c: [(db.session.get(User, i), l, f) for i, l, f in rows if db.session.get(User, i)]
+                for c, rows in svc.get("by_city", {}).items()
+            }
+            other_r = [(db.session.get(User, i), l, f)
+                       for i, l, f in svc.get("other", []) if db.session.get(User, i)]
+            total = sum(len(r) for r in by_city_r.values())
+            multi_services_data.append({
+                "service": svc["service"],
+                "price_max": svc.get("price_max"),
+                "requested_day": svc.get("requested_day"),
+                "quote_seller_ids": svc.get("quote_seller_ids", []),
+                "by_city": by_city_r,
+                "other": other_r,
+                "total": total,
+            })
+
+    # Slim JSON-serializable version for the JS modal (no User objects)
+    multi_services_json = [
+        {"service": s["service"], "price_max": s.get("price_max"),
+         "requested_day": s.get("requested_day"),
+         "quote_seller_ids": s.get("quote_seller_ids", [])}
+        for s in multi_services_data
+    ]
 
     return render_template("dashboard_buyer.html", user=user,
                            by_city=by_city,
@@ -366,7 +448,22 @@ def dashboard():
                            search_data=search_data,
                            sort=sort,
                            quote_seller_ids=quote_seller_ids,
-                           quote_requests=quote_requests)
+                           quote_requests=quote_requests,
+                           multi_bundles=multi_bundles,
+                           multi_search=multi_search,
+                           multi_services_data=multi_services_data,
+                           multi_services_json=multi_services_json)
+
+
+# ── seller public profile ─────────────────────────────────────────────────────
+
+@app.route("/seller/<int:seller_id>")
+@login_required
+def seller_profile(seller_id):
+    seller = User.query.get_or_404(seller_id)
+    if seller.role != "seller":
+        return redirect(url_for("dashboard"))
+    return render_template("seller_profile.html", seller=seller)
 
 
 # ── chat ──────────────────────────────────────────────────────────────────────
@@ -684,7 +781,7 @@ def quote_send():
     db.session.flush()
     sent = 0
     for sid in seller_ids:
-        seller = User.query.get(sid)
+        seller = db.session.get(User, sid)
         if not seller:
             continue
         conv = Conversation.query.filter_by(buyer_id=user.id, seller_id=sid).first()
@@ -743,6 +840,99 @@ def quote_delete(qr_id):
     db.session.delete(qr)
     db.session.commit()
     log.info(f"QUOTE_DELETE  buyer={user.id}  qr_id={qr_id}")
+    return redirect(url_for("dashboard") + "?tab=quotes")
+
+
+# ── multi-service bundle ──────────────────────────────────────────────────────
+
+@app.route("/multi_quote/send", methods=["POST"])
+@login_required
+def multi_quote_send():
+    user = current_user()
+    if user.role != "buyer":
+        return redirect(url_for("dashboard"))
+    raw_text = request.form.get("raw_text", "").strip()
+    try:
+        services = json.loads(request.form.get("services_json", "[]"))
+    except Exception:
+        services = []
+    last = session.get("last_multi_search", {})
+    cities = last.get("cities", [])
+    if not services:
+        flash("No services to send.")
+        return redirect(url_for("dashboard"))
+
+    bundle = MultiServiceBundle(buyer_id=user.id, raw_query=raw_text)
+    db.session.add(bundle)
+    db.session.flush()
+
+    total_sent = 0
+    for svc_data in services:
+        service = svc_data.get("service", "")
+        seller_ids = svc_data.get("quote_seller_ids", [])
+        formatted = format_quote_request(raw_text, service, cities,
+                                         svc_data.get("price_max"),
+                                         svc_data.get("requested_day"))
+        qr = QuoteRequest(buyer_id=user.id, service=service,
+                          cities=json.dumps(cities),
+                          formatted_request=formatted,
+                          bundle_id=bundle.id)
+        db.session.add(qr)
+        db.session.flush()
+        for sid in seller_ids:
+            seller = db.session.get(User, sid)
+            if not seller or not seller.seller_profile:
+                continue
+            conv = Conversation.query.filter_by(buyer_id=user.id, seller_id=sid).first()
+            if not conv:
+                conv = Conversation(buyer_id=user.id, seller_id=sid)
+                db.session.add(conv)
+                db.session.flush()
+            msg = Message(conversation_id=conv.id, sender_id=user.id,
+                          body=formatted, message_type="quote_request",
+                          quote_request_id=qr.id)
+            db.session.add(msg)
+            total_sent += 1
+            # Auto-respond for fixed-price sellers
+            listing = next((l for l in seller.seller_profile.get_listings()
+                            if l.get("service", "").lower() == service.lower()), None)
+            if listing and not listing.get("is_quote") and listing.get("price_min"):
+                price = listing["price_min"]
+                price_max = listing.get("price_max")
+                if price_max and price_max != price:
+                    auto_body = f"Fixed price: {price}–{price_max} SEK"
+                else:
+                    auto_body = f"Fixed price: {price} SEK"
+                db.session.add(QuoteResponse(
+                    quote_request_id=qr.id, seller_id=sid,
+                    formatted_response=auto_body, price_offered=price))
+                db.session.add(Message(
+                    conversation_id=conv.id, sender_id=sid,
+                    body=auto_body, message_type="quote_response"))
+
+    db.session.commit()
+    log.info(f"MULTI_QUOTE_SEND  buyer={user.id}  bundle={bundle.id}  "
+             f"services={[s['service'] for s in services]}  sent={total_sent}")
+    flash(f"Bundle sent — {total_sent} message(s) across {len(services)} services.")
+    return redirect(url_for("dashboard") + "?tab=quotes")
+
+
+@app.route("/multi_bundle/delete/<int:bid>", methods=["POST"])
+@login_required
+def multi_bundle_delete(bid):
+    user = current_user()
+    bundle = MultiServiceBundle.query.get_or_404(bid)
+    if bundle.buyer_id != user.id:
+        return redirect(url_for("dashboard"))
+    from sqlalchemy import text as _t
+    for qr in bundle.quote_requests:
+        db.session.execute(_t(
+            "UPDATE message SET quote_request_id=NULL, message_type='text' WHERE quote_request_id=:id"
+        ), {"id": qr.id})
+        db.session.delete(qr)
+    db.session.delete(bundle)
+    db.session.commit()
+    log.info(f"MULTI_BUNDLE_DELETE  buyer={user.id}  bundle={bid}")
     return redirect(url_for("dashboard") + "?tab=quotes")
 
 
@@ -877,6 +1067,64 @@ def website_delete():
     log.info(f"WEBSITE DELETE  user_id={user.id}")
     flash("Stored website data deleted.")
     return redirect(url_for("dashboard"))
+
+
+_PHOTO_MEDIA_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "png": "image/png", "gif": "image/gif", "webp": "image/webp",
+}
+_MAX_PHOTO_BYTES = 5 * 1024 * 1024
+
+@app.route("/search/photo", methods=["POST"])
+@login_required
+def search_photo():
+    user = current_user()
+    if user.role != "buyer":
+        return jsonify({"error": "buyers only"}), 403
+    file = request.files.get("photo")
+    if not file or not file.filename:
+        return jsonify({"error": "no file"}), 400
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    media_type = _PHOTO_MEDIA_TYPES.get(ext)
+    if not media_type:
+        return jsonify({"error": "unsupported file type"}), 400
+    data = file.read(_MAX_PHOTO_BYTES + 1)
+    if len(data) > _MAX_PHOTO_BYTES:
+        return jsonify({"error": "file too large (max 5 MB)"}), 400
+    image_b64 = base64.b64encode(data).decode("utf-8")
+    uploads_dir = os.path.join(app.static_folder, "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
+    photo_filename = f"search_{user.id}.{ext}"
+    with open(os.path.join(uploads_dir, photo_filename), "wb") as f:
+        f.write(data)
+    photo_url = f"/static/uploads/{photo_filename}"
+    analysis = analyze_photo_for_service(image_b64, media_type, user.city or "", get_existing_services())
+    log.info(f"PHOTO_SEARCH  user={user.id}  service={analysis.get('service')}")
+    if not analysis.get("service"):
+        return jsonify({"ok": False, "description": analysis.get("description", "Could not identify a service from this photo.")})
+    parsed = {
+        "service": analysis["service"],
+        "cities": analysis.get("cities") or ([user.city] if user.city else []),
+        "price_max": None, "requested_day": None, "unrecognized_cities": [],
+        "_raw_query": "", "_photo_description": analysis.get("description", ""),
+        "_photo_url": photo_url,
+    }
+    db.session.add(Search(
+        buyer_id=user.id,
+        raw_query=f"[photo] {analysis.get('description', '')}",
+        mapped_service=parsed["service"],
+        city=parsed["cities"][0] if parsed["cities"] else None,
+    ))
+    db.session.commit()
+    sellers = User.query.filter_by(role="seller").join(SellerProfile).all()
+    matched = match_sellers(parsed, sellers)
+    session["last_search"] = {
+        "parsed": parsed,
+        "by_city": {c: [(s.id, l, f) for s, l, f in r] for c, r in matched["by_city"].items()},
+        "other": [(s.id, l, f) for s, l, f in matched["other"]],
+    }
+    session.pop("last_multi_search", None)
+    return jsonify({"ok": True, "service": analysis["service"], "description": analysis.get("description", "")})
 
 
 if __name__ == "__main__":

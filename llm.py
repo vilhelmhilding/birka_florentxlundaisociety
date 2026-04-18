@@ -20,7 +20,7 @@ _SERVICE_LIST = ', '.join(SERVICES)
 
 def _call(system: str, user: str) -> str:
     r = _get_client().messages.create(
-        model='claude-haiku-4-5-20251001',
+        model='claude-sonnet-4-6',
         max_tokens=512,
         system=system,
         messages=[{'role': 'user', 'content': user}],

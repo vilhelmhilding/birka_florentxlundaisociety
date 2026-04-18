@@ -1,4 +1,5 @@
-import os, json
+import os, json, logging
+from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 load_dotenv()
 from flask import Flask, render_template, request, redirect, url_for, session, flash
@@ -13,6 +14,13 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 with app.app_context():
     db.create_all()
+
+handler = RotatingFileHandler('birka.log', maxBytes=500_000, backupCount=3)
+handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(message)s'))
+log = logging.getLogger('birka')
+log.setLevel(logging.INFO)
+log.addHandler(handler)
+log.propagate = False
 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
@@ -36,7 +44,8 @@ def register():
             flash('Email already registered.')
             return redirect(url_for('register'))
         u = User(email=request.form['email'], name=request.form['name'],
-                 phone=request.form.get('phone', ''), role=request.form['role'])
+                 phone=request.form.get('phone', ''), role=request.form['role'],
+                 city=request.form.get('city', ''))
         u.set_password(request.form['password'])
         db.session.add(u)
         db.session.commit()

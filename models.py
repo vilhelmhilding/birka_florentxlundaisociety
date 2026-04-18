@@ -1,5 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 import json
 
 db = SQLAlchemy()
@@ -11,6 +12,8 @@ class User(db.Model):
     name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(30), default='')
     role = db.Column(db.String(10), nullable=False)  # 'buyer' or 'seller'
+    city = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
     seller_profile = db.relationship('SellerProfile', backref='user', uselist=False, cascade='all, delete-orphan')
 
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)

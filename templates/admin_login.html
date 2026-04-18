@@ -1,16 +1,15 @@
-{% extends 'base.html' %}
-{% block title %}Admin — Birka{% endblock %}
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
 {% block content %}
-<div class="container-sm">
-  <div class="card">
-    <h1 style="font-size:1.3rem;margin-bottom:1.25rem;">Admin access</h1>
-    <form method="POST">
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" name="password" required autofocus>
-      </div>
-      <button type="submit" class="btn btn-primary" style="width:100%;">Enter</button>
-    </form>
-  </div>
+<div class="auth-wrap">
+  <h1>Admin access</h1>
+  <p class="subtitle">Enter the admin password to continue.</p>
+  <form method="POST" class="card">
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" name="password" required autofocus>
+    </div>
+    <button type="submit" class="btn btn-primary btn-full">Enter</button>
+  </form>
 </div>
 {% endblock %}

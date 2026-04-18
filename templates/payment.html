@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Pay {{ txn.amount }} SEK{% endblock %}
+{% block content %}
+<div class="auth-wrap" style="max-width:480px;">
+  <div class="page-header" style="padding-top:40px;">
+    <h1>Confirm payment</h1>
+    <p>Review the details below and confirm to complete.</p>
+  </div>
+
+  <div class="card" style="margin-bottom:20px;">
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label>Seller</label>
+        <p style="font-size:.95rem;">{{ txn.seller.name }}</p>
+      </div>
+      <div>
+        <label>Description</label>
+        <p style="font-size:.95rem;">{{ txn.description }}</p>
+      </div>
+      <div>
+        <label>Amount</label>
+        <p style="font-size:1.6rem;font-weight:800;letter-spacing:-.02em;">{{ txn.amount }} SEK</p>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);background:#f0fdf4;border-radius:7px;padding:12px 14px;font-size:.82rem;color:#166534;">
+      This is a simulated payment. No real money will be transferred.
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('pay_confirm', txn_id=txn.id) }}">
+    <button type="submit" class="btn btn-primary btn-full" style="font-size:1rem;padding:14px;">
+      Pay {{ txn.amount }} SEK
+    </button>
+  </form>
+
+  <div style="text-align:center;margin-top:16px;">
+    <a href="{{ url_for('chat_view', conv_id=txn.conversation_id) }}" style="font-size:.875rem;color:var(--muted);">Cancel and go back to chat</a>
+  </div>
+</div>
+{% endblock %}

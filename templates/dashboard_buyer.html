@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+{% block title %}Find a service{% endblock %}
+{% block content %}
+<div class="container">
+
+  <!-- Tab nav -->
+  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:24px;">
+    <button id="tab-search" onclick="showTab('search')"
+      style="padding:10px 22px;font-size:.9rem;font-weight:600;background:none;border:none;border-bottom:2px solid var(--blue);margin-bottom:-2px;color:var(--blue);cursor:pointer;">
+      Search
+    </button>
+    <button id="tab-quotes" onclick="showTab('quotes')"
+      style="padding:10px 22px;font-size:.9rem;font-weight:600;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);cursor:pointer;">
+      Quote Requests {% if quote_requests %}<span style="background:#6d28d9;color:#fff;border-radius:20px;padding:1px 8px;font-size:.75rem;margin-left:4px;">{{ quote_requests|length }}</span>{% endif %}
+    </button>
+  </div>
+
+  <!-- Quote modal -->
+  <div id="quote-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:12px;padding:28px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+      <h2 style="font-size:1rem;margin-bottom:12px;">Request a quote</h2>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:16px;">Describe what you need — Claude will format it into a professional quote request and send it to all matched sellers.</p>
+      <form method="POST" action="{{ url_for('quote_send') }}">
+        <input type="hidden" name="seller_ids" id="quote-seller-ids" value="">
+        <textarea name="raw_text" rows="4" placeholder="E.g. Need an electrician for a full apartment rewiring in Lund, would like it done on a Saturday if possible." style="margin-bottom:12px;" required></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button type="button" onclick="closeQuoteModal()" class="btn" style="background:#f3f4f6;color:var(--muted);">Cancel</button>
+          <button type="submit" class="btn btn-primary">Send to {{ quote_seller_ids|length }} seller(s)</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- SEARCH TAB -->
+  <div id="pane-search">
+  <div class="page-header">
+    <h1>What do you need?</h1>
+    <p>Write in plain language — include the service, city or cities, and your budget if you have one.</p>
+  </div>
+
+  <div class="card" style="margin-bottom:20px;">
+    <h2 style="font-size:1rem;margin-bottom:14px;">Your details</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">
+      <div><label>Name</label><p style="font-size:.95rem;">{{ user.name }}</p></div>
+      <div><label>Email</label><p style="font-size:.95rem;">{{ user.email }}</p></div>
+      {% if user.phone %}<div><label>Phone</label><p style="font-size:.95rem;">{{ user.phone }}</p></div>{% endif %}
+      {% if user.city %}<div><label>City</label><p style="font-size:.95rem;">{{ user.city }}</p></div>{% endif %}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:24px;">
+    <form method="POST" id="search-form">
+      <div class="form-group" style="margin-bottom:12px;">
+        <textarea name="query" id="query" rows="3" autofocus
+          placeholder="E.g. I need a painter in Lund and Gothenburg, budget around 8 000 SEK">{{ search_data.get('_raw_query', '') }}</textarea>
+      </div>
+      <div class="hint-box">
+        <div class="hint-box-label">You can also include</div>
+        <div class="hint-chips">
+          <span class="hint-chip"><span class="hint-chip-label">Multiple cities</span> "painter in Lund and Malmö"</span>
+          <span class="hint-chip"><span class="hint-chip-label">Budget</span> "budget 5 000 SEK"</span>
+          <span class="hint-chip"><span class="hint-chip-label">Day</span> "available on weekends"</span>
+          <span class="hint-chip"><span class="hint-chip-label">Urgency</span> "as soon as possible"</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button type="submit" class="btn btn-primary">Search</button>
+        <button type="button" class="btn" style="background:#f3f4f6;color:var(--muted);"
+          onclick="document.getElementById('query').value=''">Clear</button>
+      </div>
+    </form>
+  </div>
+  <script>
+    document.getElementById('query').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('search-form').submit(); }
+    });
+  </script>
+
+  {% set total_local = namespace(n=0) %}
+  {% for results in by_city.values() %}{% set total_local.n = total_local.n + results|length %}{% endfor %}
+
+  {% if search_data.get('unrecognized_cities') %}
+    <div class="flash" style="margin-bottom:16px;">
+      Couldn't recognise these locations: <strong>{{ search_data.unrecognized_cities | join(', ') }}</strong> — did you mean something else? They were left out of the search.
+    </div>
+  {% endif %}
+
+  {% if search_data and not search_data.get('service') %}
+    <div class="flash" style="margin-bottom:16px;">Couldn't understand your search — try describing what service you need, e.g. <em>"painter in Lund, budget 5 000 SEK"</em>.</div>
+  {% elif search_data %}
+    <div class="search-banner" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+      <div>
+        <strong>Matched:</strong> {{ search_data.service }}
+        {% set cities = search_data.get('cities', []) %}
+        {% if cities %} · {{ cities | join(', ') }}{% endif %}
+        {% if search_data.price_max %} · max {{ search_data.price_max }} SEK{% endif %}
+        <p>
+          {{ total_local.n }} local result{{ 's' if total_local.n != 1 else '' }}
+          {% if other_results %} · {{ other_results|length }} from other areas{% endif %}
+        </p>
+      </div>
+      {% if quote_seller_ids %}
+      <button onclick="openQuoteModal()" class="btn" style="background:#ede9fe;color:#6d28d9;font-weight:600;font-size:.84rem;padding:7px 16px;flex-shrink:0;">
+        Request quote from {{ quote_seller_ids|length }} seller{{ 's' if quote_seller_ids|length != 1 else '' }}
+      </button>
+      {% endif %}
+    </div>
+
+    {% if total_local.n > 0 or other_results %}
+    <!-- Sort controls -->
+    <div class="sort-bar">
+      <span style="font-size:.8rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Sort by</span>
+      <a href="?sort=rating" class="sort-btn {% if sort == 'rating' %}sort-btn-active{% endif %}">★ Highest rated</a>
+      <a href="?sort=price"  class="sort-btn {% if sort == 'price'  %}sort-btn-active{% endif %}">↓ Lowest price</a>
+    </div>
+
+    <!-- City filter tabs (only shown when 2+ cities searched) -->
+    {% if by_city | length > 1 %}
+    <div class="city-tabs" id="city-tabs">
+      <button class="city-tab city-tab-active" data-city="all">
+        All cities <span class="city-tab-count">{{ total_local.n }}</span>
+      </button>
+      {% for city_key, results in by_city.items() %}
+      <button class="city-tab" data-city="{{ city_key }}">
+        {{ city_key | capitalize }} <span class="city-tab-count">{{ results | length }}</span>
+      </button>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+  {% endif %}
+
+  {# ── Star macro ─────────────────────────────────────────────────── #}
+  {% macro stars(avg, count) %}
+    {% if avg %}
+      <span class="rating-stars">{% for i in range(1,6) %}{% if i <= avg|round(0,'floor')|int %}★{% else %}☆{% endif %}{% endfor %}</span>
+      <span class="rating-value">{{ "%.1f"|format(avg) }}</span>
+      <span class="rating-count">({{ count }})</span>
+    {% else %}
+      <span class="rating-new">New</span>
+    {% endif %}
+  {% endmacro %}
+
+  {# ── Seller card macro ───────────────────────────────────────────── #}
+  {% macro seller_card(seller, listing, flags={}) %}
+  <div class="result-card">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <h3 style="margin-bottom:2px;">{{ seller.name }}
+        {% if flags.get('over_budget') %}<span style="font-size:.75rem;font-weight:600;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:20px;padding:2px 10px;margin-left:6px;">Above your budget</span>{% endif %}
+        {% if flags.get('unavailable') %}<span style="font-size:.75rem;font-weight:600;color:#991b1b;background:#fee2e2;border:1px solid #fca5a5;border-radius:20px;padding:2px 10px;margin-left:6px;">Not available {{ search_data.get('requested_day','') | capitalize }}</span>{% endif %}
+      </h3>
+      <div style="flex-shrink:0;text-align:right;">{{ stars(seller.seller_profile.avg_rating, seller.seller_profile.rating_count) }}</div>
+    </div>
+    <div class="result-meta">
+      {# Show all seller cities #}
+      {% set scities = seller.seller_profile.get_cities() %}
+      {% if scities %}{{ scities | map('capitalize') | join(', ') }}{% elif seller.city %}{{ seller.city }}{% endif %}
+      {% if listing.get('is_quote') %}
+        · <span style="color:#6d28d9;font-weight:600;">Quote on request</span>
+      {% elif listing.get('price_min') or listing.get('price_max') %}
+        ·
+        {% if listing.get('price_min') %}from {{ listing.price_min }} SEK{% endif %}
+        {% if listing.get('price_max') %} – {{ listing.price_max }} SEK{% endif %}
+      {% endif %}
+    </div>
+    <span class="tag">{{ listing.get('service','') }}</span>
+    {% set avail = listing.get('availability_days', []) %}
+    {% if avail %}<p style="font-size:.8rem;color:var(--muted);margin:6px 0 2px;">Available: {{ avail | join(', ') }}</p>{% endif %}
+    <div class="contact-info" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div>
+        <span>{{ seller.email }}</span>
+        {% if seller.phone %}<span>{{ seller.phone }}</span>{% endif %}
+      </div>
+      <form method="POST" action="{{ url_for('chat_start', seller_id=seller.id) }}">
+        <button type="submit" class="btn btn-blue" style="padding:6px 14px;font-size:.82rem;">Message</button>
+      </form>
+    </div>
+  </div>
+  {% endmacro %}
+
+  {# ── Results ─────────────────────────────────────────────────────── #}
+  {% if by_city %}
+    {% if by_city | length == 1 %}
+      {# Single city — flat list, no tabs or headers #}
+      {% for results in by_city.values() %}
+        {% for seller, listing, flags in results %}{{ seller_card(seller, listing, flags) }}{% endfor %}
+      {% endfor %}
+    {% else %}
+      {# Multiple cities — flat "all" view + per-city sections #}
+
+      {# Flat merged view (shown when "All" tab active) #}
+      <div id="view-all">
+        {% for seller, listing, flags in all_local %}{{ seller_card(seller, listing, flags) }}{% endfor %}
+      </div>
+
+      {# Per-city views (hidden initially) #}
+      {% for city_key, results in by_city.items() %}
+        <div class="city-section" id="view-{{ city_key }}" style="display:none;">
+          {% if results %}
+            {% for seller, listing, flags in results %}{{ seller_card(seller, listing, flags) }}{% endfor %}
+          {% else %}
+            <div class="empty" style="padding:24px 0;"><p>No sellers found in {{ city_key | capitalize }} for this service.</p></div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endif %}
+
+  {% if other_results %}
+    <div id="view-other">
+      <p style="font-size:.85rem;color:var(--muted);margin:20px 0 10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">
+        {% if total_local.n %}Also available in other areas{% else %}No local results — showing other areas{% endif %}
+      </p>
+      {% for seller, listing, flags in other_results %}{{ seller_card(seller, listing, flags) }}{% endfor %}
+    </div>
+  {% endif %}
+
+  {% if search_data and total_local.n == 0 and not other_results %}
+    <div class="empty"><p>No sellers found for this service. Try a different search.</p></div>
+  {% endif %}
+
+  </div>{# end pane-search #}
+
+  <!-- QUOTES TAB -->
+  <div id="pane-quotes" style="display:none;">
+    <h2 style="font-size:1rem;margin-bottom:20px;">Your quote requests</h2>
+    {% if not quote_requests %}
+      <div class="empty"><p>No quote requests yet. Search for a service and click "Request Quote" to get started.</p></div>
+    {% else %}
+      {% for qr in quote_requests %}
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+          <div>
+            <span class="tag" style="background:#ede9fe;color:#6d28d9;">{{ qr.service or '—' }}</span>
+            {% if qr.get_cities() %}
+              <span style="font-size:.82rem;color:var(--muted);margin-left:8px;">{{ qr.get_cities()|join(', ') }}</span>
+            {% endif %}
+            <p style="font-size:.9rem;margin-top:10px;">{{ qr.formatted_request }}</p>
+            <p style="font-size:.75rem;color:var(--muted);margin-top:4px;">Sent {{ qr.created_at.strftime('%d %b %Y %H:%M') }}</p>
+          </div>
+          <form method="POST" action="{{ url_for('quote_delete', qr_id=qr.id) }}" style="flex-shrink:0;">
+            <button type="submit" class="btn" style="font-size:.78rem;padding:5px 12px;background:#fee2e2;color:#991b1b;"
+              onclick="return confirm('Delete this quote request?')">Delete</button>
+          </form>
+        </div>
+        {% if qr.responses %}
+          <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+            <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:12px;">
+              {{ qr.responses|length }} response(s)
+            </p>
+            {% set sorted_responses = qr.responses|sort(attribute='price_offered') %}
+            {% for resp in sorted_responses %}
+            <div style="{% if not loop.first %}margin-top:12px;padding-top:12px;border-top:1px solid var(--border);{% endif %}display:flex;gap:12px;align-items:flex-start;">
+              <div style="flex:1;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+                  <strong style="font-size:.9rem;">{{ resp.seller.name }}</strong>
+                  {% if resp.price_offered %}
+                    <span style="font-size:.88rem;font-weight:700;color:#16a34a;">{{ resp.price_offered }} SEK</span>
+                  {% endif %}
+                  {% set avg = resp.seller.seller_profile.avg_rating %}
+                  {% if avg %}
+                    <span style="font-size:.78rem;color:#f59e0b;">★ {{ "%.1f"|format(avg) }}</span>
+                  {% else %}
+                    <span style="font-size:.75rem;color:var(--muted);">New</span>
+                  {% endif %}
+                </div>
+                <p style="font-size:.87rem;color:#374151;">{{ resp.formatted_response }}</p>
+                <p style="font-size:.73rem;color:var(--muted);">{{ resp.created_at.strftime('%d %b %H:%M') }}</p>
+              </div>
+              <form method="POST" action="{{ url_for('chat_start', seller_id=resp.seller_id) }}" style="flex-shrink:0;">
+                <button type="submit" class="btn btn-blue" style="font-size:.78rem;padding:5px 12px;">Message</button>
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p style="font-size:.85rem;color:var(--muted);margin-top:12px;font-style:italic;">Awaiting responses from sellers…</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% endif %}
+  </div>{# end pane-quotes #}
+
+</div>{# end container #}
+
+<script>
+  function showTab(name) {
+    document.getElementById('pane-search').style.display  = name === 'search'  ? '' : 'none';
+    document.getElementById('pane-quotes').style.display  = name === 'quotes'  ? '' : 'none';
+    document.getElementById('tab-search').style.cssText  += ';border-bottom-color:' + (name==='search'  ? 'var(--blue);color:var(--blue)' : 'transparent;color:var(--muted)');
+    document.getElementById('tab-quotes').style.cssText  += ';border-bottom-color:' + (name==='quotes'  ? '#6d28d9;color:#6d28d9' : 'transparent;color:var(--muted)');
+  }
+  if (window.location.search.includes('tab=quotes')) showTab('quotes');
+
+  function openQuoteModal() {
+    document.getElementById('quote-seller-ids').value = '{{ quote_seller_ids | tojson }}';
+    document.getElementById('quote-modal').style.display = 'flex';
+  }
+  function closeQuoteModal() {
+    document.getElementById('quote-modal').style.display = 'none';
+  }
+
+  const tabs = document.querySelectorAll('.city-tab');
+  if (tabs.length) {
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const city = tab.dataset.city;
+        tabs.forEach(t => t.classList.remove('city-tab-active'));
+        tab.classList.add('city-tab-active');
+
+        // Toggle flat vs per-city view
+        const viewAll   = document.getElementById('view-all');
+        const viewOther = document.getElementById('view-other');
+
+        if (city === 'all') {
+          if (viewAll) viewAll.style.display = '';
+          document.querySelectorAll('.city-section').forEach(s => s.style.display = 'none');
+          if (viewOther) viewOther.style.display = '';
+        } else {
+          if (viewAll) viewAll.style.display = 'none';
+          document.querySelectorAll('.city-section').forEach(s => {
+            s.style.display = s.id === 'view-' + city ? '' : 'none';
+          });
+          if (viewOther) viewOther.style.display = 'none';
+        }
+      });
+    });
+  }
+</script>
+{% endblock %}

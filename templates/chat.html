@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% block title %}Messages{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="page-header" style="padding-bottom:16px;">
+    <h1>Messages</h1>
+  </div>
+
+  <div class="chat-layout">
+    <!-- Conversation list -->
+    <div class="chat-sidebar">
+      {% if not conversations %}
+        <div class="chat-empty-sidebar">
+          <p>No conversations yet.</p>
+          {% if user.role == 'buyer' %}
+            <p style="margin-top:8px;">Search for a service and contact a seller to get started.</p>
+          {% endif %}
+        </div>
+      {% else %}
+        {% for conv in conversations %}
+          {% set other = conv.other_party(user.id) %}
+          {% set last = conv.last_message() %}
+          {% set unread = conv.unread_count(user.id) %}
+          <a href="{{ url_for('chat_view', conv_id=conv.id) }}"
+             class="conv-item {% if active_conv and active_conv.id == conv.id %}conv-item-active{% endif %}">
+            <div class="conv-item-header">
+              <span class="conv-name">{{ other.name }}</span>
+              {% if unread %}<span class="conv-badge">{{ unread }}</span>{% endif %}
+            </div>
+            {% if last %}
+              <div class="conv-preview">
+                {% if last.sender_id == user.id %}<span style="color:var(--muted)">You: </span>{% endif %}
+                {{ last.body | truncate(50, true, '…') }}
+              </div>
+              <div class="conv-time">{{ last.created_at.strftime('%d %b %H:%M') }}</div>
+            {% else %}
+              <div class="conv-preview" style="color:var(--muted);font-style:italic;">No messages yet</div>
+            {% endif %}
+          </a>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    <!-- Message thread -->
+    <div class="chat-main">
+      {% if not active_conv %}
+        <div class="chat-empty-main">
+          <p>Select a conversation to view messages.</p>
+        </div>
+      {% else %}
+        {% set other = active_conv.other_party(user.id) %}
+        <div class="chat-header">
+          <strong>{{ other.name }}</strong>
+          <span style="font-size:.82rem;color:var(--muted);margin-left:10px;">
+            {{ other.email }}{% if other.phone %} · {{ other.phone }}{% endif %}
+          </span>
+          {% if user.role == 'seller' %}
+            <button class="btn btn-blue" id="pay-req-toggle"
+              style="padding:5px 12px;font-size:.78rem;float:right;margin-top:-2px;">
+              Request payment
+            </button>
+          {% endif %}
+        </div>
+
+        <!-- Payment request form (seller only, hidden by default) -->
+        {% if user.role == 'seller' %}
+        <div id="pay-req-form" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border);background:#f8f9ff;">
+          <form method="POST" action="{{ url_for('pay_request', conv_id=active_conv.id) }}">
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+              <div style="flex:0 0 130px;">
+                <label style="font-size:.75rem;">Amount (SEK)</label>
+                <input type="number" name="amount" min="1" placeholder="e.g. 2500" required
+                  style="padding:8px 10px;font-size:.88rem;">
+              </div>
+              <div style="flex:1;min-width:160px;">
+                <label style="font-size:.75rem;">Description</label>
+                <input type="text" name="description" placeholder="e.g. Full apartment painting" required maxlength="200"
+                  style="padding:8px 10px;font-size:.88rem;">
+              </div>
+              <button type="submit" class="btn btn-primary" style="padding:8px 16px;font-size:.88rem;flex-shrink:0;">Send request</button>
+              <button type="button" id="pay-req-cancel" class="btn" style="padding:8px 12px;font-size:.88rem;background:#f3f4f6;color:var(--muted);flex-shrink:0;">Cancel</button>
+            </div>
+          </form>
+        </div>
+        {% endif %}
+
+        <!-- Quote respond modal (seller only) -->
+        {% if user.role == 'seller' %}
+        <div id="quote-respond-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
+          <div style="background:#fff;border-radius:12px;padding:28px;max-width:460px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+            <h2 style="font-size:1rem;margin-bottom:8px;">Respond to quote request</h2>
+            <p style="font-size:.83rem;color:var(--muted);margin-bottom:14px;">Write your response in plain language — Claude will format it into a professional quote.</p>
+            <textarea id="qr-raw-text" rows="4" placeholder="E.g. I can do the job for 4 500 SEK, available on Saturdays. Includes all materials." style="margin-bottom:12px;"></textarea>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button type="button" onclick="closeQuoteRespondModal()" class="btn" style="background:#f3f4f6;color:var(--muted);">Cancel</button>
+              <button type="button" onclick="submitQuoteResponse()" class="btn btn-primary" id="qr-submit-btn">Send response</button>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="messages-container" id="messages-container">
+          {% if not active_conv.messages %}
+            <div class="chat-empty-main" id="empty-hint">
+              <p>No messages yet. Say hello!</p>
+            </div>
+          {% endif %}
+          {% for msg in active_conv.messages %}
+            {% if msg.message_type == 'payment' and msg.transaction %}
+              {% set txn = msg.transaction %}
+              <div class="message {% if msg.sender_id == user.id %}message-mine{% else %}message-theirs{% endif %}">
+                <div class="pay-request-card">
+                  <div class="pay-req-label">Payment request</div>
+                  <div class="pay-req-desc">{{ txn.description }}</div>
+                  <div class="pay-req-amount">{{ txn.amount }} SEK</div>
+                  {% if txn.status == 'pending' and user.role == 'buyer' %}
+                    <a href="{{ url_for('pay_view', txn_id=txn.id) }}" class="btn btn-primary" style="margin-top:10px;display:block;text-align:center;font-size:.85rem;padding:8px 14px;">
+                      Pay {{ txn.amount }} SEK
+                    </a>
+                  {% elif txn.status == 'completed' %}
+                    <div class="pay-req-status pay-req-paid">Paid</div>
+                    {% if txn.rated %}
+                      <div style="font-size:.75rem;color:#16a34a;margin-top:4px;">✓ Rated anonymously</div>
+                    {% elif user.role == 'buyer' %}
+                      <a href="{{ url_for('rate_view', txn_id=txn.id) }}" style="font-size:.8rem;color:var(--blue);display:block;margin-top:6px;">Leave a rating →</a>
+                    {% endif %}
+                  {% elif txn.status == 'pending' and user.role == 'seller' %}
+                    <div class="pay-req-status" style="background:#fef9c3;color:#92400e;">Awaiting payment</div>
+                  {% endif %}
+                </div>
+                <div class="message-time">{{ msg.created_at.strftime('%H:%M') }}</div>
+              </div>
+            {% elif msg.message_type == 'quote_request' %}
+              <div class="message message-theirs">
+                <div class="pay-request-card" style="border-color:#c4b5fd;background:#faf5ff;">
+                  <div class="pay-req-label" style="color:#6d28d9;">Quote request</div>
+                  <div class="pay-req-desc" style="white-space:pre-wrap;">{{ msg.body }}</div>
+                  {% if user.role == 'seller' and msg.quote_request_id %}
+                    <button onclick="openQuoteRespondModal({{ msg.quote_request_id }})"
+                      class="btn" style="margin-top:10px;font-size:.82rem;padding:6px 14px;background:#ede9fe;color:#6d28d9;font-weight:600;">
+                      Respond to quote
+                    </button>
+                  {% endif %}
+                </div>
+                <div class="message-time">{{ msg.created_at.strftime('%H:%M') }}</div>
+              </div>
+            {% elif msg.message_type == 'quote_response' %}
+              <div class="message {% if msg.sender_id == user.id %}message-mine{% else %}message-theirs{% endif %}">
+                <div class="pay-request-card" style="border-color:#bbf7d0;background:#f0fdf4;">
+                  <div class="pay-req-label" style="color:#166534;">Quote response</div>
+                  <div class="pay-req-desc" style="white-space:pre-wrap;">{{ msg.body }}</div>
+                </div>
+                <div class="message-time">{{ msg.created_at.strftime('%H:%M') }}</div>
+              </div>
+            {% else %}
+              <div class="message {% if msg.sender_id == user.id %}message-mine{% else %}message-theirs{% endif %}">
+                <div class="message-body">{{ msg.body }}</div>
+                <div class="message-time">{{ msg.created_at.strftime('%H:%M') }}</div>
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+
+        <div class="chat-input-area">
+          <form id="send-form">
+            <input type="text" id="message-input" placeholder="Write a message…" autocomplete="off" maxlength="2000">
+            <button type="submit" class="btn btn-primary">Send</button>
+          </form>
+        </div>
+
+        <script>
+          const CONV_ID  = {{ active_conv.id }};
+          const USER_ID  = {{ user.id }};
+          const IS_BUYER = {{ 'true' if user.role == 'buyer' else 'false' }};
+          let lastId     = {{ active_conv.messages[-1].id if active_conv.messages else 0 }};
+
+          const container = document.getElementById('messages-container');
+          const input     = document.getElementById('message-input');
+
+          container.scrollTop = container.scrollHeight;
+          input.focus();
+
+          // Payment request toggle (seller only)
+          const payToggle = document.getElementById('pay-req-toggle');
+          const payForm   = document.getElementById('pay-req-form');
+          const payCancel = document.getElementById('pay-req-cancel');
+          if (payToggle) {
+            payToggle.addEventListener('click', () => { payForm.style.display = 'block'; payToggle.style.display = 'none'; });
+          }
+          if (payCancel) {
+            payCancel.addEventListener('click', () => { payForm.style.display = 'none'; payToggle.style.display = ''; });
+          }
+
+          function escapeHtml(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          }
+
+          function removeEmptyHint() {
+            const h = document.getElementById('empty-hint');
+            if (h) h.remove();
+          }
+
+          function appendTextMessage(body, isMine, time) {
+            removeEmptyHint();
+            const div = document.createElement('div');
+            div.className = 'message ' + (isMine ? 'message-mine' : 'message-theirs');
+            div.innerHTML =
+              '<div class="message-body">' + escapeHtml(body) + '</div>' +
+              '<div class="message-time">' + time + '</div>';
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+          }
+
+          function appendPaymentMessage(txn, isMine, time) {
+            removeEmptyHint();
+            const div = document.createElement('div');
+            div.className = 'message ' + (isMine ? 'message-mine' : 'message-theirs');
+            let actionHtml = '';
+            if (txn.status === 'pending' && IS_BUYER) {
+              actionHtml = '<a href="/pay/' + txn.id + '" class="btn btn-primary" style="margin-top:10px;display:block;text-align:center;font-size:.85rem;padding:8px 14px;">Pay ' + txn.amount + ' SEK</a>';
+            } else if (txn.status === 'completed') {
+              actionHtml = '<div class="pay-req-status pay-req-paid">Paid</div>';
+            } else {
+              actionHtml = '<div class="pay-req-status" style="background:#fef9c3;color:#92400e;">Awaiting payment</div>';
+            }
+            div.innerHTML =
+              '<div class="pay-request-card">' +
+                '<div class="pay-req-label">Payment request</div>' +
+                '<div class="pay-req-desc">' + escapeHtml(txn.description) + '</div>' +
+                '<div class="pay-req-amount">' + txn.amount + ' SEK</div>' +
+                actionHtml +
+              '</div>' +
+              '<div class="message-time">' + time + '</div>';
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+          }
+
+          // Send via AJAX
+          document.getElementById('send-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const body = input.value.trim();
+            if (!body) return;
+            input.value = '';
+            const resp = await fetch('/chat/' + CONV_ID + '/send', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+              body: 'body=' + encodeURIComponent(body)
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              appendTextMessage(body, true, data.time);
+              lastId = data.id;
+            }
+          });
+
+          input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              document.getElementById('send-form').dispatchEvent(new Event('submit'));
+            }
+          });
+
+          // Quote respond modal
+          let activeQrId = null;
+          function openQuoteRespondModal(qrId) {
+            activeQrId = qrId;
+            document.getElementById('qr-raw-text').value = '';
+            document.getElementById('quote-respond-modal').style.display = 'flex';
+            document.getElementById('qr-raw-text').focus();
+          }
+          function closeQuoteRespondModal() {
+            document.getElementById('quote-respond-modal').style.display = 'none';
+            activeQrId = null;
+          }
+          async function submitQuoteResponse() {
+            const rawText = document.getElementById('qr-raw-text').value.trim();
+            if (!rawText || !activeQrId) return;
+            const btn = document.getElementById('qr-submit-btn');
+            btn.disabled = true; btn.textContent = 'Sending…';
+            try {
+              const resp = await fetch('/quote/' + activeQrId + '/respond', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'raw_text=' + encodeURIComponent(rawText) + '&conv_id=' + CONV_ID
+              });
+              if (resp.ok) {
+                const data = await resp.json();
+                appendQuoteResponseMessage(data.formatted, data.time);
+                lastId = data.msg_id;
+                closeQuoteRespondModal();
+              }
+            } finally {
+              btn.disabled = false; btn.textContent = 'Send response';
+            }
+          }
+
+          function appendQuoteResponseMessage(body, time) {
+            removeEmptyHint();
+            const div = document.createElement('div');
+            div.className = 'message message-mine';
+            div.innerHTML =
+              '<div class="pay-request-card" style="border-color:#bbf7d0;background:#f0fdf4;">' +
+                '<div class="pay-req-label" style="color:#166534;">Quote response</div>' +
+                '<div class="pay-req-desc" style="white-space:pre-wrap;">' + escapeHtml(body) + '</div>' +
+              '</div>' +
+              '<div class="message-time">' + time + '</div>';
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+          }
+
+          // Poll for new messages
+          async function poll() {
+            try {
+              const resp = await fetch('/chat/' + CONV_ID + '/messages?after=' + lastId);
+              if (!resp.ok) return;
+              const data = await resp.json();
+              for (const msg of data.messages) {
+                if (msg.txn) {
+                  appendPaymentMessage(msg.txn, msg.is_mine, msg.time);
+                } else if (msg.type === 'quote_response') {
+                  appendQuoteResponseMessage(msg.body, msg.time);
+                } else {
+                  appendTextMessage(msg.body, msg.is_mine, msg.time);
+                }
+                lastId = msg.id;
+              }
+            } catch (_) {}
+          }
+
+          setInterval(poll, 4000);
+        </script>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -56,22 +56,105 @@
       </div>
       <div class="hint-box">
         <div class="hint-box-label">You can also include</div>
-        <div class="hint-chips">
-          <span class="hint-chip"><span class="hint-chip-label">Multiple cities</span> "painter in Lund and Malmö"</span>
-          <span class="hint-chip"><span class="hint-chip-label">Budget</span> "budget 5 000 SEK"</span>
-          <span class="hint-chip"><span class="hint-chip-label">Day</span> "available on weekends"</span>
-          <span class="hint-chip"><span class="hint-chip-label">Urgency</span> "as soon as possible"</span>
-        </div>
+        <div class="live-suggestions" id="live-suggestions"></div>
       </div>
       <div style="display:flex;gap:8px;">
         <button type="submit" class="btn btn-primary">Search</button>
         <button type="button" class="btn" style="background:#f3f4f6;color:var(--muted);"
-          onclick="document.getElementById('query').value=''">Clear</button>
+          onclick="clearQuery()">Clear</button>
       </div>
     </form>
   </div>
   <script>
-    document.getElementById('query').addEventListener('keydown', function(e) {
+    const queryEl = document.getElementById('query');
+    const liveSuggestionsEl = document.getElementById('live-suggestions');
+    let suggestionsTimer = null;
+    let activeSuggestionRequest = null;
+    let suggestionSeq = 0;
+    let latestRenderedSeq = 0;
+
+    function applySuggestion(text) {
+      queryEl.value = text;
+      queryEl.focus();
+      queueSuggestionFetch();
+    }
+
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function renderSuggestionList(suggestions) {
+      if (!suggestions.length) {
+        liveSuggestionsEl.innerHTML = '<div class="live-suggestion-empty">No extra suggestions right now.</div>';
+        return;
+      }
+      liveSuggestionsEl.innerHTML = suggestions
+        .map(s => {
+          const escaped = escapeHtml(s);
+          return `<button type="button" class="live-suggestion" data-suggestion="${escaped}">${escaped}</button>`;
+        })
+        .join('');
+    }
+
+    async function fetchAiSuggestions() {
+      const raw = queryEl.value.trim();
+      if (!raw) {
+        liveSuggestionsEl.innerHTML = '';
+        return;
+      }
+      if (raw.length < 3) {
+        liveSuggestionsEl.innerHTML = '<div class="live-suggestion-empty">Keep typing for AI suggestions.</div>';
+        return;
+      }
+
+      if (activeSuggestionRequest) activeSuggestionRequest.abort();
+      activeSuggestionRequest = new AbortController();
+      const requestSeq = ++suggestionSeq;
+
+      liveSuggestionsEl.innerHTML = '<div class="live-suggestion-empty">Generating suggestions...</div>';
+      try {
+        const res = await fetch(`/api/query_suggestions?q=${encodeURIComponent(raw)}`, {
+          signal: activeSuggestionRequest.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (requestSeq < latestRenderedSeq) return;
+        latestRenderedSeq = requestSeq;
+        renderSuggestionList(Array.isArray(data.suggestions) ? data.suggestions : []);
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        liveSuggestionsEl.innerHTML = '<div class="live-suggestion-empty">AI suggestions unavailable right now.</div>';
+      }
+    }
+
+    function queueSuggestionFetch() {
+      clearTimeout(suggestionsTimer);
+      suggestionsTimer = setTimeout(fetchAiSuggestions, 320);
+    }
+
+    function clearQuery() {
+      queryEl.value = '';
+      clearTimeout(suggestionsTimer);
+      if (activeSuggestionRequest) activeSuggestionRequest.abort();
+      liveSuggestionsEl.innerHTML = '';
+      queryEl.focus();
+    }
+
+    queryEl.addEventListener('input', function() {
+      queueSuggestionFetch();
+    });
+    liveSuggestionsEl.addEventListener('click', function(e) {
+      const target = e.target.closest('.live-suggestion');
+      if (target) applySuggestion(target.dataset.suggestion);
+    });
+    queueSuggestionFetch();
+    queryEl.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('search-form').submit(); }
     });
   </script>

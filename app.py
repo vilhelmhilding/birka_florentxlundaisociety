@@ -4,10 +4,18 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from models import db, User, SellerProfile, Search, Conversation, Message, Transaction, QuoteRequest, QuoteResponse, get_existing_services
-from llm import parse_seller, parse_buyer, match_sellers, format_quote_request, format_quote_response
+from llm import (
+    parse_seller,
+    parse_buyer,
+    match_sellers,
+    format_quote_request,
+    format_quote_response,
+    suggest_buyer_queries,
+)
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+from collections import Counter, defaultdict
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
@@ -95,6 +103,65 @@ def _sort_results(results, sort):
     return sorted(results,
                   key=lambda x: x[0].seller_profile.avg_rating or 0,
                   reverse=True)
+
+
+def _build_suggestion_context():
+    """Summarize existing seller JSON data for AI query suggestions."""
+    city_counts = Counter()
+    day_counts = Counter()
+    service_price_min = defaultdict(list)
+    service_price_max = defaultdict(list)
+    service_day_counts = defaultdict(Counter)
+
+    profiles = SellerProfile.query.all()
+    for profile in profiles:
+        for city in profile.get_cities():
+            if city:
+                city_counts[city.strip().lower()] += 1
+        for listing in profile.get_listings():
+            service = (listing.get("service") or "").strip().lower()
+            if not service:
+                continue
+            pmin = listing.get("price_min")
+            pmax = listing.get("price_max")
+            if isinstance(pmin, int):
+                service_price_min[service].append(pmin)
+            if isinstance(pmax, int):
+                service_price_max[service].append(pmax)
+            for day in listing.get("availability_days") or []:
+                d = (day or "").strip().lower()
+                if d:
+                    day_counts[d] += 1
+                    service_day_counts[service][d] += 1
+
+    def _title_city(c):
+        return " ".join(part.capitalize() for part in c.split())
+
+    top_services = get_existing_services()[:20]
+    service_pricing = []
+    service_availability = []
+    for service in top_services:
+        mins = service_price_min.get(service, [])
+        maxs = service_price_max.get(service, [])
+        service_pricing.append({
+            "service": service,
+            "min_seen_sek": min(mins) if mins else None,
+            "max_seen_sek": max(maxs) if maxs else None,
+            "priced_listing_count": max(len(mins), len(maxs)),
+        })
+        common_days = [d for d, _ in service_day_counts.get(service, {}).most_common(4)]
+        service_availability.append({
+            "service": service,
+            "common_days": common_days,
+        })
+
+    return {
+        "services": top_services,
+        "top_cities": [_title_city(c) for c, _ in city_counts.most_common(20)],
+        "common_availability_days": [d for d, _ in day_counts.most_common(7)],
+        "service_price_ranges": service_pricing,
+        "service_availability": service_availability,
+    }
 
 
 # ── auth ──────────────────────────────────────────────────────────────────────
@@ -343,6 +410,20 @@ def chat_messages(conv_id):
             entry["quote_request_id"] = m.quote_request_id
         out.append(entry)
     return jsonify({"messages": out})
+
+
+@app.route("/api/query_suggestions")
+@login_required
+def query_suggestions():
+    user = current_user()
+    if user.role != "buyer":
+        return jsonify({"suggestions": []}), 403
+    query = request.args.get("q", "").strip()
+    if len(query) < 3:
+        return jsonify({"suggestions": []})
+    context = _build_suggestion_context()
+    suggestions = suggest_buyer_queries(query, user.city or "", get_existing_services(), context)
+    return jsonify({"suggestions": suggestions[:4]})
 
 
 # ── payment ───────────────────────────────────────────────────────────────────

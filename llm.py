@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import anthropic
 import json
 import os
@@ -217,3 +219,58 @@ Return ONLY valid JSON: {{"response": "...", "price": 2500}} or {{"response": ".
     except Exception as e:
         log.error(f"format_quote_response FAILED: {e}")
         return raw_text, None
+
+
+def suggest_buyer_queries(partial_query: str, default_city: str, existing: list[str], context: dict | None = None) -> list[str]:
+    """Generate short AI-powered live query suggestions from partial buyer text."""
+    existing_str = ", ".join(existing) if existing else "(none yet)"
+    context_json = json.dumps(context or {}, ensure_ascii=False)
+    prompt = f"""You generate live autocomplete suggestions for a buyer typing a search query
+in a home and local services marketplace.
+
+Existing service categories: {existing_str}
+Default city: {default_city or "(none)"}
+Current marketplace JSON context (existing data): {context_json}
+
+Input partial query: {partial_query}
+
+Return ONLY valid JSON in this exact format:
+{{"suggestions": ["...", "...", "..."]}}
+
+Rules:
+- Return 3 suggestions.
+- Each suggestion must be a natural continuation/rewrite of the user's intent.
+- Keep each suggestion short: max 18 words.
+- Suggestions must differ in emphasis (for example speed, low budget, quality, timing, distance, flexibility).
+- Use plain English.
+- If relevant, include words like "quick", "cheap", "affordable", "urgent", "this week", but do not force all of them.
+- Prefer cities/services/availability/price levels that exist in the marketplace JSON context.
+- If you include budget hints, keep them realistic for observed ranges in the context when available.
+- Do not add explanations, numbering, markdown, or extra keys.
+"""
+    try:
+        raw = _call(prompt)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        data = json.loads(raw)
+        suggestions = data.get("suggestions") if isinstance(data, dict) else None
+        if not isinstance(suggestions, list):
+            return []
+        cleaned = []
+        seen = set()
+        for s in suggestions:
+            if not isinstance(s, str):
+                continue
+            text = " ".join(s.split()).strip()
+            if len(text) < 6:
+                continue
+            key = text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(text)
+            if len(cleaned) == 5:
+                break
+        return cleaned
+    except Exception as e:
+        log.error(f"suggest_buyer_queries FAILED: {e}")
+        return []

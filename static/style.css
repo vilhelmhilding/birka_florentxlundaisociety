@@ -456,6 +456,37 @@ tr:last-child td { border-bottom: none; }
   flex-wrap: wrap;
   gap: 6px;
 }
+.live-suggestions {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.live-suggestion {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  text-align: left;
+  border: 1px solid #cfd8f7;
+  background: #f8faff;
+  color: #1e3a8a;
+  border-radius: 8px;
+  font-size: .82rem;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+  white-space: normal;
+  word-break: break-word;
+}
+.live-suggestion:hover {
+  background: #edf2ff;
+  border-color: #b7c6f5;
+}
+.live-suggestion-empty {
+  font-size: .8rem;
+  color: var(--muted);
+  padding: 2px 0;
+}
 .hint-chip {
   display: inline-flex;
   align-items: center;

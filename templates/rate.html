@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Rate your experience{% endblock %}
+{% block content %}
+<div class="auth-wrap" style="max-width:440px;">
+  <div class="page-header" style="padding-top:40px;">
+    <h1>Rate your experience</h1>
+    <p>Your rating is anonymous and helps other buyers find great sellers.</p>
+  </div>
+
+  <div class="card" style="margin-bottom:20px;">
+    <p style="font-size:.9rem;color:var(--muted);margin-bottom:4px;">You hired</p>
+    <p style="font-weight:700;font-size:1rem;margin-bottom:2px;">{{ txn.seller.name }}</p>
+    <p style="font-size:.875rem;color:var(--muted);margin-bottom:24px;">{{ txn.description }}</p>
+
+    <form method="POST" action="{{ url_for('rate_submit', txn_id=txn.id) }}" id="rate-form">
+      <input type="hidden" name="rating" id="rating-value">
+
+      <p style="font-size:.85rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:14px;">How was the experience?</p>
+
+      <div class="js-star-row" id="star-row">
+        <span class="js-star" data-val="1">★</span>
+        <span class="js-star" data-val="2">★</span>
+        <span class="js-star" data-val="3">★</span>
+        <span class="js-star" data-val="4">★</span>
+        <span class="js-star" data-val="5">★</span>
+      </div>
+      <p id="star-label" style="font-size:.8rem;color:var(--muted);margin-top:8px;min-height:1.2em;text-align:center;"></p>
+
+      <button type="submit" class="btn btn-primary btn-full" style="margin-top:20px;" id="submit-btn" disabled>
+        Submit rating
+      </button>
+    </form>
+  </div>
+
+  <div style="text-align:center;margin-top:12px;">
+    <a href="{{ url_for('chat_view', conv_id=txn.conversation_id) }}" style="font-size:.875rem;color:var(--muted);">Skip for now</a>
+  </div>
+</div>
+
+<script>
+  const stars   = Array.from(document.querySelectorAll('.js-star'));
+  const input   = document.getElementById('rating-value');
+  const label   = document.getElementById('star-label');
+  const btn     = document.getElementById('submit-btn');
+  const labels  = ['', 'Very poor', 'Poor', 'OK', 'Good', 'Excellent'];
+  let selected  = 0;
+
+  function paint(upTo) {
+    stars.forEach((s, i) => {
+      s.style.color = (i + 1) <= upTo ? '#f59e0b' : '#d1d5db';
+    });
+  }
+
+  stars.forEach(s => {
+    s.addEventListener('mouseenter', () => paint(parseInt(s.dataset.val)));
+    s.addEventListener('mouseleave', () => paint(selected));
+    s.addEventListener('click', () => {
+      selected = parseInt(s.dataset.val);
+      input.value = selected;
+      paint(selected);
+      label.textContent = labels[selected];
+      btn.disabled = false;
+    });
+  });
+
+  document.getElementById('rate-form').addEventListener('submit', function(e) {
+    if (!selected) {
+      e.preventDefault();
+      label.textContent = 'Please select a rating.';
+      label.style.color = '#dc2626';
+    }
+  });
+</script>
+{% endblock %}

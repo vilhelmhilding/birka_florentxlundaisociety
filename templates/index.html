@@ -2,30 +2,31 @@
 {% block title %}Birka — Find local services{% endblock %}
 {% block content %}
 <div class="hero">
-  <h1>Find trusted local services</h1>
-  <p>Tell us what you need in plain language. We'll match you with the right professionals.</p>
+  <h1>Find local services,<br>without the hassle.</h1>
+  <p>Describe what you need in plain language. We match you with the right professional instantly.</p>
   <div class="hero-actions">
-    <a href="{{ url_for('register') }}?role=buyer" class="btn btn-primary">Find a service</a>
-    <a href="{{ url_for('register') }}?role=seller" class="btn btn-outline">List your business</a>
+    {% if user %}
+      {% if user.role == 'seller' %}
+        <a href="{{ url_for('seller_dashboard') }}" class="btn btn-primary">Go to dashboard</a>
+      {% else %}
+        <a href="{{ url_for('buyer_search') }}" class="btn btn-primary">Find a service</a>
+      {% endif %}
+    {% else %}
+      <a href="{{ url_for('register') }}?role=buyer" class="btn btn-primary">I need a service</a>
+      <a href="{{ url_for('register') }}?role=seller" class="btn btn-blue">I offer a service</a>
+    {% endif %}
   </div>
 </div>
 
-<div class="container">
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1rem;">
-    <div class="card" style="text-align:center;">
-      <div style="font-size:2rem;margin-bottom:.5rem;">🔍</div>
-      <h3>Search naturally</h3>
-      <p class="muted">Describe what you need in your own words — no need for exact keywords.</p>
+<div class="container" style="padding-bottom:48px;">
+  <div class="role-grid">
+    <div class="role-card">
+      <h3>For buyers</h3>
+      <p>Write what you need in plain text. Our AI finds the right professionals near you.</p>
     </div>
-    <div class="card" style="text-align:center;">
-      <div style="font-size:2rem;margin-bottom:.5rem;">📍</div>
-      <h3>Local matches</h3>
-      <p class="muted">Get matched with professionals in your area, filtered by price.</p>
-    </div>
-    <div class="card" style="text-align:center;">
-      <div style="font-size:2rem;margin-bottom:.5rem;">📞</div>
-      <h3>Direct contact</h3>
-      <p class="muted">See contact details instantly. No middlemen, no fees.</p>
+    <div class="role-card">
+      <h3>For sellers</h3>
+      <p>Describe your business once. Get found by customers looking for exactly what you offer.</p>
     </div>
   </div>
 </div>

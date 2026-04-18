@@ -17,6 +17,11 @@
       Include what you need, your city, and an optional budget.
     </p>
   </form>
+  <script>
+    document.querySelector('input[name="query"]').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); this.closest('form').submit(); }
+    });
+  </script>
 
   {% if query %}
     {% if parsed and parsed.services %}

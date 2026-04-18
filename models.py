@@ -7,6 +7,7 @@ db = SQLAlchemy()
 
 
 def get_existing_services():
+    """Return all unique service categories currently in use across all listings."""
     from sqlalchemy import text
     rows = db.session.execute(text("SELECT listings FROM seller_profile")).fetchall()
     seen = set()
@@ -22,13 +23,13 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.String(10), nullable=False)
+    role = db.Column(db.String(10), nullable=False)  # 'buyer' or 'seller'
     name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(30))
     city = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    seller_profile = db.relationship('SellerProfile', backref='user', uselist=False, cascade='all, delete-orphan')
+    seller_profile = db.relationship('SellerProfile', backref='user', uselist=False)
     searches = db.relationship('Search', backref='buyer', lazy=True)
 
     def set_password(self, password):
@@ -43,10 +44,11 @@ class SellerProfile(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     raw_description = db.Column(db.Text)
     city = db.Column(db.String(100))
+    # listings: JSON array of {service, availability_days[], price_min, price_max}
     listings = db.Column(db.Text, default='[]')
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    cities = db.Column(db.Text, default='[]')
-    avg_rating = db.Column(db.Float, nullable=True)
+    cities = db.Column(db.Text, default='[]')          # JSON list of city strings
+    avg_rating = db.Column(db.Float, nullable=True)   # None = no ratings yet
     rating_count = db.Column(db.Integer, default=0)
 
     def get_listings(self):
@@ -56,6 +58,7 @@ class SellerProfile(db.Model):
         self.listings = json.dumps(lst)
 
     def get_cities(self):
+        """Return list of lowercase city strings (supports legacy single city field)."""
         raw = json.loads(self.cities or '[]')
         if raw:
             return [c.lower() for c in raw if c]
@@ -67,6 +70,7 @@ class SellerProfile(db.Model):
         self.cities = json.dumps(lst)
 
     def recalculate_rating(self):
+        """Recompute avg_rating and rating_count from completed, rated transactions."""
         ratings = [t.rating for t in self.user.transactions_as_seller
                    if t.status == 'completed' and t.rated and t.rating]
         self.rating_count = len(ratings)
@@ -111,9 +115,10 @@ class Message(db.Model):
     body = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
+    # 'text' | 'payment' | 'quote_request' | 'quote_response'
     message_type = db.Column(db.String(20), default='text')
     transaction_id = db.Column(db.Integer, db.ForeignKey('transaction.id'), nullable=True)
-    quote_request_id = db.Column(db.Integer, nullable=True)
+    quote_request_id = db.Column(db.Integer, nullable=True)  # FK added via migration
 
     sender = db.relationship('User', foreign_keys=[sender_id])
     transaction = db.relationship('Transaction', foreign_keys=[transaction_id])
@@ -124,12 +129,12 @@ class Transaction(db.Model):
     conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=False)
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    amount = db.Column(db.Integer, nullable=False)
+    amount = db.Column(db.Integer, nullable=False)           # SEK
     description = db.Column(db.String(200), nullable=False)
-    status = db.Column(db.String(20), default='pending')
+    status = db.Column(db.String(20), default='pending')     # 'pending' | 'completed' | 'cancelled'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     rated = db.Column(db.Boolean, default=False)
-    rating = db.Column(db.Integer, nullable=True)
+    rating = db.Column(db.Integer, nullable=True)            # 1–5, anonymous
 
     conversation = db.relationship('Conversation', backref='transactions')
     seller = db.relationship('User', foreign_keys=[seller_id], backref='transactions_as_seller')
@@ -140,7 +145,7 @@ class QuoteRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     service = db.Column(db.String(80))
-    cities = db.Column(db.Text, default='[]')
+    cities = db.Column(db.Text, default='[]')  # JSON
     formatted_request = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 

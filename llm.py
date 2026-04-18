@@ -35,6 +35,7 @@ def _call(prompt: str) -> str:
 
 
 def parse_seller(description: str, city: str, existing: list[str]) -> dict:
+    """Parse seller description into cities list + array of individual listings."""
     existing_str = ", ".join(existing) if existing else "(none yet)"
     prompt = f"""You are a strict data extractor for a home and local services marketplace.
 
@@ -75,6 +76,7 @@ City (from registration, use only if no city found in description): {city}"""
         raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         result = json.loads(raw)
         log.debug(f"parse_seller LLM response: {raw}")
+        # Normalise: support legacy single-city response
         if "city" in result and "cities" not in result:
             result["cities"] = [result["city"]]
         return result
@@ -84,6 +86,7 @@ City (from registration, use only if no city found in description): {city}"""
 
 
 def parse_buyer(query: str, default_city: str, existing: list[str]) -> dict:
+    """Map buyer query to structured search parameters."""
     existing_str = ", ".join(existing) if existing else "(none yet)"
     prompt = f"""You are a strict query mapper for a home and local services marketplace.
 
@@ -113,6 +116,7 @@ Default city (use only if no city found in query): {default_city}"""
         raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         result = json.loads(raw)
         log.debug(f"parse_buyer LLM response: {raw}")
+        # Normalise: support legacy single-city response
         if "city" in result and "cities" not in result:
             result["cities"] = [result["city"]] if result["city"] else []
         return result
@@ -122,11 +126,20 @@ Default city (use only if no city found in query): {default_city}"""
 
 
 def match_sellers(parsed: dict, sellers) -> dict:
+    """
+    Match on individual listings, not whole profiles.
+    Returns {
+      "by_city": {"Stockholm": [(seller, listing, flags), ...], "Lund": [...]},
+      "other":   [(seller, listing, flags), ...]
+    }
+    flags includes "matched_city" for local results.
+    """
     service = (parsed.get("service") or "").lower()
     buyer_cities = [c.strip().lower() for c in (parsed.get("cities") or []) if c.strip()]
     price_max = parsed.get("price_max")
     requested_day = (parsed.get("requested_day") or "").lower()
 
+    # Preserve original casing for display
     city_display = {c.lower(): c for c in (parsed.get("cities") or [])}
 
     by_city = {c: [] for c in buyer_cities}
@@ -134,7 +147,7 @@ def match_sellers(parsed: dict, sellers) -> dict:
 
     for seller in sellers:
         profile = seller.seller_profile
-        seller_cities = profile.get_cities()
+        seller_cities = profile.get_cities()  # list of lowercase strings
 
         for listing in profile.get_listings():
             if service != listing.get("service", "").lower():
@@ -164,6 +177,7 @@ def match_sellers(parsed: dict, sellers) -> dict:
 
 
 def format_quote_request(raw_text: str, service: str, cities: list, price_max, requested_day) -> str:
+    """Format buyer's casual message into a short professional quote request."""
     ctx = [f"Service: {service}"]
     if cities:
         ctx.append(f"Location: {', '.join(cities)}")
@@ -186,6 +200,7 @@ Return only the formatted text."""
 
 
 def format_quote_response(raw_text: str, quote_body: str) -> tuple[str, int | None]:
+    """Format seller's casual reply into a clean quote response. Returns (formatted_text, price_sek_or_None)."""
     prompt = f"""Format the following seller reply into a short professional quote response (2–4 sentences).
 Keep all details and pricing. Write in English.
 Extract any offered price as an integer SEK value; null if none mentioned.

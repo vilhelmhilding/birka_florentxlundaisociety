@@ -62,6 +62,7 @@
           {% endif %}
         </div>
 
+        <!-- Payment request form (seller only, hidden by default) -->
         {% if user.role == 'seller' %}
         <div id="pay-req-form" style="display:none;padding:12px 16px;border-bottom:1px solid var(--border);background:#f8f9ff;">
           <form method="POST" action="{{ url_for('pay_request', conv_id=active_conv.id) }}">
@@ -83,6 +84,7 @@
         </div>
         {% endif %}
 
+        <!-- Quote respond modal (seller only) -->
         {% if user.role == 'seller' %}
         <div id="quote-respond-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
           <div style="background:#fff;border-radius:12px;padding:28px;max-width:460px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);">
@@ -178,6 +180,7 @@
           container.scrollTop = container.scrollHeight;
           input.focus();
 
+          // Payment request toggle (seller only)
           const payToggle = document.getElementById('pay-req-toggle');
           const payForm   = document.getElementById('pay-req-form');
           const payCancel = document.getElementById('pay-req-cancel');
@@ -232,6 +235,7 @@
             container.scrollTop = container.scrollHeight;
           }
 
+          // Send via AJAX
           document.getElementById('send-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             const body = input.value.trim();
@@ -256,6 +260,7 @@
             }
           });
 
+          // Quote respond modal
           let activeQrId = null;
           function openQuoteRespondModal(qrId) {
             activeQrId = qrId;
@@ -303,6 +308,7 @@
             container.scrollTop = container.scrollHeight;
           }
 
+          // Poll for new messages
           async function poll() {
             try {
               const resp = await fetch('/chat/' + CONV_ID + '/messages?after=' + lastId);

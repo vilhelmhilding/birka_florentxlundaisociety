@@ -107,12 +107,14 @@
     </div>
 
     {% if total_local.n > 0 or other_results %}
+    <!-- Sort controls -->
     <div class="sort-bar">
       <span style="font-size:.8rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Sort by</span>
       <a href="?sort=rating" class="sort-btn {% if sort == 'rating' %}sort-btn-active{% endif %}">★ Highest rated</a>
       <a href="?sort=price"  class="sort-btn {% if sort == 'price'  %}sort-btn-active{% endif %}">↓ Lowest price</a>
     </div>
 
+    <!-- City filter tabs (only shown when 2+ cities searched) -->
     {% if by_city | length > 1 %}
     <div class="city-tabs" id="city-tabs">
       <button class="city-tab city-tab-active" data-city="all">
@@ -128,6 +130,7 @@
     {% endif %}
   {% endif %}
 
+  {# ── Star macro ─────────────────────────────────────────────────── #}
   {% macro stars(avg, count) %}
     {% if avg %}
       <span class="rating-stars">{% for i in range(1,6) %}{% if i <= avg|round(0,'floor')|int %}★{% else %}☆{% endif %}{% endfor %}</span>
@@ -138,6 +141,7 @@
     {% endif %}
   {% endmacro %}
 
+  {# ── Seller card macro ───────────────────────────────────────────── #}
   {% macro seller_card(seller, listing, flags={}) %}
   <div class="result-card">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
@@ -148,6 +152,7 @@
       <div style="flex-shrink:0;text-align:right;">{{ stars(seller.seller_profile.avg_rating, seller.seller_profile.rating_count) }}</div>
     </div>
     <div class="result-meta">
+      {# Show all seller cities #}
       {% set scities = seller.seller_profile.get_cities() %}
       {% if scities %}{{ scities | map('capitalize') | join(', ') }}{% elif seller.city %}{{ seller.city }}{% endif %}
       {% if listing.get('is_quote') %}
@@ -173,15 +178,22 @@
   </div>
   {% endmacro %}
 
+  {# ── Results ─────────────────────────────────────────────────────── #}
   {% if by_city %}
     {% if by_city | length == 1 %}
+      {# Single city — flat list, no tabs or headers #}
       {% for results in by_city.values() %}
         {% for seller, listing, flags in results %}{{ seller_card(seller, listing, flags) }}{% endfor %}
       {% endfor %}
     {% else %}
+      {# Multiple cities — flat "all" view + per-city sections #}
+
+      {# Flat merged view (shown when "All" tab active) #}
       <div id="view-all">
         {% for seller, listing, flags in all_local %}{{ seller_card(seller, listing, flags) }}{% endfor %}
       </div>
+
+      {# Per-city views (hidden initially) #}
       {% for city_key, results in by_city.items() %}
         <div class="city-section" id="view-{{ city_key }}" style="display:none;">
           {% if results %}
@@ -236,7 +248,8 @@
             <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:12px;">
               {{ qr.responses|length }} response(s)
             </p>
-            {% for resp in qr.responses|sort(attribute='price_offered') %}
+            {% set sorted_responses = qr.responses|sort(attribute='price_offered') %}
+            {% for resp in sorted_responses %}
             <div style="{% if not loop.first %}margin-top:12px;padding-top:12px;border-top:1px solid var(--border);{% endif %}display:flex;gap:12px;align-items:flex-start;">
               <div style="flex:1;">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
@@ -272,10 +285,10 @@
 
 <script>
   function showTab(name) {
-    document.getElementById('pane-search').style.display  = name === 'search' ? '' : 'none';
-    document.getElementById('pane-quotes').style.display  = name === 'quotes' ? '' : 'none';
-    document.getElementById('tab-search').style.cssText  += ';border-bottom-color:' + (name==='search' ? 'var(--blue);color:var(--blue)' : 'transparent;color:var(--muted)');
-    document.getElementById('tab-quotes').style.cssText  += ';border-bottom-color:' + (name==='quotes' ? '#6d28d9;color:#6d28d9' : 'transparent;color:var(--muted)');
+    document.getElementById('pane-search').style.display  = name === 'search'  ? '' : 'none';
+    document.getElementById('pane-quotes').style.display  = name === 'quotes'  ? '' : 'none';
+    document.getElementById('tab-search').style.cssText  += ';border-bottom-color:' + (name==='search'  ? 'var(--blue);color:var(--blue)' : 'transparent;color:var(--muted)');
+    document.getElementById('tab-quotes').style.cssText  += ';border-bottom-color:' + (name==='quotes'  ? '#6d28d9;color:#6d28d9' : 'transparent;color:var(--muted)');
   }
   if (window.location.search.includes('tab=quotes')) showTab('quotes');
 
@@ -294,8 +307,11 @@
         const city = tab.dataset.city;
         tabs.forEach(t => t.classList.remove('city-tab-active'));
         tab.classList.add('city-tab-active');
+
+        // Toggle flat vs per-city view
         const viewAll   = document.getElementById('view-all');
         const viewOther = document.getElementById('view-other');
+
         if (city === 'all') {
           if (viewAll) viewAll.style.display = '';
           document.querySelectorAll('.city-section').forEach(s => s.style.display = 'none');

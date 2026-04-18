@@ -63,6 +63,7 @@
     });
   });
 
+  // Prevent submit without selecting a star
   document.getElementById('rate-form').addEventListener('submit', function(e) {
     if (!selected) {
       e.preventDefault();

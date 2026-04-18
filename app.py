@@ -10,7 +10,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "birka-dev-secret")
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///marketplace.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db.init_app(app)
@@ -29,7 +29,7 @@ with app.app_context():
                 pass
 
 
-# ── logging ───────────────────────────────────────────────────────────────────
+# ── logging ──────────────────────────────────────────────────────────────────
 
 LOG_PATH = os.path.join(os.path.dirname(__file__), "birka.log")
 handler = RotatingFileHandler(LOG_PATH, maxBytes=2_000_000, backupCount=3)
@@ -74,21 +74,24 @@ def inject_unread():
     if user:
         convs = user.conversations_as_buyer + user.conversations_as_seller
         count = sum(c.unread_count(user.id) for c in convs)
-        return {"unread_count": count}
-    return {"unread_count": 0}
+        return {'unread_count': count}
+    return {'unread_count': 0}
 
 def login_required(fn):
     from functools import wraps
     @wraps(fn)
     def wrapped(*args, **kwargs):
         if not current_user():
+            log.info("login_required: no session, redirecting to login")
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
     return wrapped
 
 def _sort_results(results, sort):
+    """Sort (seller, listing, flags) tuples by price or rating."""
     if sort == "price":
         return sorted(results, key=lambda x: x[1].get("price_min") or float("inf"))
+    # default: rating descending (no-rating sellers go last)
     return sorted(results,
                   key=lambda x: x[0].seller_profile.avg_rating or 0,
                   reverse=True)
@@ -205,6 +208,7 @@ def dashboard():
         }
         return redirect(url_for("dashboard"))
 
+    # GET — retrieve from session (keep until next search)
     by_city = {}
     other_results = []
     search_data = {}
@@ -265,6 +269,7 @@ def chat_start(seller_id):
         log.info(f"CHAT new conversation  buyer={user.id}  seller={seller_id}  conv_id={conv.id}")
     return redirect(url_for("chat_view", conv_id=conv.id))
 
+
 @app.route("/chat")
 @login_required
 def chat_list():
@@ -275,6 +280,7 @@ def chat_list():
         reverse=True
     )
     return render_template("chat.html", user=user, conversations=convs, active_conv=None)
+
 
 @app.route("/chat/<int:conv_id>")
 @login_required
@@ -294,6 +300,7 @@ def chat_view(conv_id):
     )
     return render_template("chat.html", user=user, conversations=convs, active_conv=conv)
 
+
 @app.route("/chat/<int:conv_id>/send", methods=["POST"])
 @login_required
 def chat_send(conv_id):
@@ -309,6 +316,7 @@ def chat_send(conv_id):
     db.session.commit()
     return jsonify({"ok": True, "id": msg.id, "time": msg.created_at.strftime("%H:%M"),
                     "type": "text"})
+
 
 @app.route("/chat/<int:conv_id>/messages")
 @login_required
@@ -342,6 +350,7 @@ def chat_messages(conv_id):
 @app.route("/chat/<int:conv_id>/pay_request", methods=["POST"])
 @login_required
 def pay_request(conv_id):
+    """Seller sends a payment request into the chat."""
     user = current_user()
     conv = Conversation.query.get_or_404(conv_id)
     if conv.seller_id != user.id:
@@ -376,12 +385,14 @@ def pay_request(conv_id):
     )
     db.session.add(msg)
     db.session.commit()
-    log.info(f"PAY REQUEST  conv={conv_id}  txn={txn.id}  amount={amount}")
+    log.info(f"PAY REQUEST  conv={conv_id}  txn={txn.id}  amount={amount}  desc={description}")
     return redirect(url_for("chat_view", conv_id=conv_id))
+
 
 @app.route("/pay/<int:txn_id>")
 @login_required
 def pay_view(txn_id):
+    """Dummy payment confirmation page shown to buyer."""
     user = current_user()
     txn = Transaction.query.get_or_404(txn_id)
     if txn.buyer_id != user.id:
@@ -390,9 +401,11 @@ def pay_view(txn_id):
         return redirect(url_for("chat_view", conv_id=txn.conversation_id))
     return render_template("payment.html", user=user, txn=txn)
 
+
 @app.route("/pay/<int:txn_id>/confirm", methods=["POST"])
 @login_required
 def pay_confirm(txn_id):
+    """Buyer confirms the dummy payment."""
     user = current_user()
     txn = Transaction.query.get_or_404(txn_id)
     if txn.buyer_id != user.id or txn.status != "pending":
@@ -417,6 +430,7 @@ def rate_view(txn_id):
         return redirect(url_for("chat_view", conv_id=txn.conversation_id))
     return render_template("rate.html", user=user, txn=txn)
 
+
 @app.route("/rate/<int:txn_id>", methods=["POST"])
 @login_required
 def rate_submit(txn_id):
@@ -434,94 +448,13 @@ def rate_submit(txn_id):
 
     txn.rating = stars
     txn.rated = True
+
     seller_profile = txn.seller.seller_profile
     seller_profile.recalculate_rating()
     db.session.commit()
     log.info(f"RATING  txn={txn_id}  seller={txn.seller_id}  stars={stars}  new_avg={seller_profile.avg_rating}")
     flash("Thanks for your rating!")
     return redirect(url_for("chat_view", conv_id=txn.conversation_id))
-
-
-# ── quotes ────────────────────────────────────────────────────────────────────
-
-@app.route("/quote/send", methods=["POST"])
-@login_required
-def quote_send():
-    user = current_user()
-    if user.role != "buyer":
-        return redirect(url_for("dashboard"))
-    raw_text = request.form.get("raw_text", "").strip()
-    seller_ids = json.loads(request.form.get("seller_ids", "[]"))
-    last = session.get("last_search", {})
-    parsed = last.get("parsed", {})
-    service = parsed.get("service", "")
-    cities = parsed.get("cities", [])
-    formatted = format_quote_request(raw_text, service, cities,
-                                     parsed.get("price_max"), parsed.get("requested_day"))
-    qr = QuoteRequest(buyer_id=user.id, service=service,
-                      cities=json.dumps(cities), formatted_request=formatted)
-    db.session.add(qr)
-    db.session.flush()
-    sent = 0
-    for sid in seller_ids:
-        seller = User.query.get(sid)
-        if not seller:
-            continue
-        conv = Conversation.query.filter_by(buyer_id=user.id, seller_id=sid).first()
-        if not conv:
-            conv = Conversation(buyer_id=user.id, seller_id=sid)
-            db.session.add(conv)
-            db.session.flush()
-        msg = Message(conversation_id=conv.id, sender_id=user.id,
-                      body=formatted, message_type="quote_request",
-                      quote_request_id=qr.id)
-        db.session.add(msg)
-        sent += 1
-    db.session.commit()
-    log.info(f"QUOTE_SEND  buyer={user.id}  service={service}  sellers={seller_ids}  qr_id={qr.id}")
-    flash(f"Quote request sent to {sent} seller(s).")
-    return redirect(url_for("dashboard") + "?tab=quotes")
-
-@app.route("/quote/<int:qr_id>/respond", methods=["POST"])
-@login_required
-def quote_respond(qr_id):
-    user = current_user()
-    if user.role != "seller":
-        return jsonify({"error": "forbidden"}), 403
-    qr = QuoteRequest.query.get_or_404(qr_id)
-    conv_id = request.form.get("conv_id", type=int)
-    conv = Conversation.query.get_or_404(conv_id)
-    if conv.seller_id != user.id:
-        return jsonify({"error": "forbidden"}), 403
-    raw_text = request.form.get("raw_text", "").strip()
-    formatted, price = format_quote_response(raw_text, qr.formatted_request)
-    qresp = QuoteResponse(quote_request_id=qr.id, seller_id=user.id,
-                          formatted_response=formatted, price_offered=price)
-    db.session.add(qresp)
-    db.session.flush()
-    msg = Message(conversation_id=conv.id, sender_id=user.id,
-                  body=formatted, message_type="quote_response")
-    db.session.add(msg)
-    db.session.commit()
-    log.info(f"QUOTE_RESPOND  seller={user.id}  qr_id={qr_id}  price={price}")
-    return jsonify({"ok": True, "formatted": formatted,
-                    "msg_id": msg.id, "time": msg.created_at.strftime("%H:%M")})
-
-@app.route("/quote/<int:qr_id>/delete", methods=["POST"])
-@login_required
-def quote_delete(qr_id):
-    user = current_user()
-    qr = QuoteRequest.query.get_or_404(qr_id)
-    if qr.buyer_id != user.id:
-        return redirect(url_for("dashboard"))
-    from sqlalchemy import text as _text
-    db.session.execute(_text(
-        "UPDATE message SET quote_request_id=NULL, message_type='text' WHERE quote_request_id=:id"
-    ), {"id": qr_id})
-    db.session.delete(qr)
-    db.session.commit()
-    log.info(f"QUOTE_DELETE  buyer={user.id}  qr_id={qr_id}")
-    return redirect(url_for("dashboard") + "?tab=quotes")
 
 
 # ── admin ─────────────────────────────────────────────────────────────────────
@@ -567,6 +500,90 @@ def admin_logout():
     return redirect(url_for("index"))
 
 
+# ── quotes ────────────────────────────────────────────────────────────────────
+
+@app.route("/quote/send", methods=["POST"])
+@login_required
+def quote_send():
+    user = current_user()
+    if user.role != "buyer":
+        return redirect(url_for("dashboard"))
+    raw_text = request.form.get("raw_text", "").strip()
+    seller_ids = json.loads(request.form.get("seller_ids", "[]"))
+    last = session.get("last_search", {})
+    parsed = last.get("parsed", {})
+    service = parsed.get("service", "")
+    cities = parsed.get("cities", [])
+    formatted = format_quote_request(raw_text, service, cities,
+                                     parsed.get("price_max"), parsed.get("requested_day"))
+    qr = QuoteRequest(buyer_id=user.id, service=service,
+                      cities=json.dumps(cities), formatted_request=formatted)
+    db.session.add(qr)
+    db.session.flush()
+    sent = 0
+    for sid in seller_ids:
+        seller = User.query.get(sid)
+        if not seller:
+            continue
+        conv = Conversation.query.filter_by(buyer_id=user.id, seller_id=sid).first()
+        if not conv:
+            conv = Conversation(buyer_id=user.id, seller_id=sid)
+            db.session.add(conv)
+            db.session.flush()
+        msg = Message(conversation_id=conv.id, sender_id=user.id,
+                      body=formatted, message_type="quote_request",
+                      quote_request_id=qr.id)
+        db.session.add(msg)
+        sent += 1
+    db.session.commit()
+    log.info(f"QUOTE_SEND  buyer={user.id}  service={service}  sellers={seller_ids}  qr_id={qr.id}")
+    flash(f"Quote request sent to {sent} seller(s).")
+    return redirect(url_for("dashboard") + "?tab=quotes")
+
+
+@app.route("/quote/<int:qr_id>/respond", methods=["POST"])
+@login_required
+def quote_respond(qr_id):
+    user = current_user()
+    if user.role != "seller":
+        return jsonify({"error": "forbidden"}), 403
+    qr = QuoteRequest.query.get_or_404(qr_id)
+    conv_id = request.form.get("conv_id", type=int)
+    conv = Conversation.query.get_or_404(conv_id)
+    if conv.seller_id != user.id:
+        return jsonify({"error": "forbidden"}), 403
+    raw_text = request.form.get("raw_text", "").strip()
+    formatted, price = format_quote_response(raw_text, qr.formatted_request)
+    qresp = QuoteResponse(quote_request_id=qr.id, seller_id=user.id,
+                          formatted_response=formatted, price_offered=price)
+    db.session.add(qresp)
+    db.session.flush()
+    msg = Message(conversation_id=conv.id, sender_id=user.id,
+                  body=formatted, message_type="quote_response")
+    db.session.add(msg)
+    db.session.commit()
+    log.info(f"QUOTE_RESPOND  seller={user.id}  qr_id={qr_id}  price={price}")
+    return jsonify({"ok": True, "formatted": formatted,
+                    "msg_id": msg.id, "time": msg.created_at.strftime("%H:%M")})
+
+
+@app.route("/quote/<int:qr_id>/delete", methods=["POST"])
+@login_required
+def quote_delete(qr_id):
+    user = current_user()
+    qr = QuoteRequest.query.get_or_404(qr_id)
+    if qr.buyer_id != user.id:
+        return redirect(url_for("dashboard"))
+    from sqlalchemy import text as _text
+    db.session.execute(_text(
+        "UPDATE message SET quote_request_id=NULL, message_type='text' WHERE quote_request_id=:id"
+    ), {"id": qr_id})
+    db.session.delete(qr)
+    db.session.commit()
+    log.info(f"QUOTE_DELETE  buyer={user.id}  qr_id={qr_id}")
+    return redirect(url_for("dashboard") + "?tab=quotes")
+
+
 if __name__ == "__main__":
-    log.info("=== Birka starting ===")
-    app.run(debug=True)
+    log.info("=== Birka starting on port 5002 ===")
+    app.run(debug=True, port=5002)

@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}Set up your business — Birka{% endblock %}
+{% block content %}
+<div class="container-sm">
+  <div class="card">
+    <h1 style="font-size:1.4rem;margin-bottom:.25rem;">
+      {% if profile %}Update your business{% else %}Set up your business{% endif %}
+    </h1>
+    <p class="muted" style="margin-bottom:1.5rem;">Describe what you do — our AI will extract the details automatically.</p>
+
+    <form method="POST">
+      <div class="form-group">
+        <label>Business name</label>
+        <input type="text" name="business_name" required
+               value="{{ profile.business_name if profile else '' }}"
+               placeholder="Stockholm Painters AB">
+      </div>
+      <div class="form-group">
+        <label>Describe your business</label>
+        <textarea name="description" required
+                  placeholder="We paint houses and apartments in Stockholm and Solna. Interior and exterior. Prices from 300 SEK/hour. Available weekdays.">{{ profile.raw_description if profile else '' }}</textarea>
+        <p class="prompt-hint">Include: what you do, where you operate, price range, any specialties.</p>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;">
+        {% if profile %}Save changes{% else %}Create profile{% endif %}
+      </button>
+    </form>
+
+    {% if profile %}
+    <hr class="divider">
+    <div>
+      <p class="muted" style="font-size:.82rem;margin-bottom:.5rem;">Current extracted data:</p>
+      <div>{% for s in profile.get_services() %}<span class="tag">{{ s }}</span>{% endfor %}</div>
+      <div style="margin-top:.4rem;">{% for c in profile.get_cities() %}<span class="tag" style="background:#f0fdf4;color:#166534;">{{ c }}</span>{% endfor %}</div>
+      {% if profile.price_min or profile.price_max %}
+        <p class="price-range" style="margin-top:.4rem;">
+          Price: {{ profile.price_min }} – {{ profile.price_max }} SEK
+        </p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

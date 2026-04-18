@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Birka{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -12,7 +13,7 @@
 <body>
 <nav>
   <div class="inner">
-    <a class="logo" href="/">Birka</a>
+    <a class="logo" href="/">ᛒᛁᚱᚴᛅ</a>
     <div class="nav-links">
       {% if user %}
         <span style="color:var(--muted);font-size:.875rem;padding:6px 12px;">{{ user.name }}</span>
@@ -43,7 +44,7 @@
 
 <footer>
   <div class="footer-inner">
-    <span class="footer-logo">Birka</span>
+    <span class="footer-logo">ᛒᛁᚱᚴᛅ</span>
     <div class="footer-links">
       <a href="{{ url_for('index') }}">Home</a>
       {% if user %}

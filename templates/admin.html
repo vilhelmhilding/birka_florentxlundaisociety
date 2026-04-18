@@ -1,18 +1,25 @@
 {% extends 'base.html' %}
 {% block title %}Admin panel — Birka{% endblock %}
 {% block content %}
-<div class="container">
-  <div class="section-header" style="margin-bottom:1.5rem;">
-    <h1>Admin panel</h1>
-    <a href="{{ url_for('admin_logout') }}" class="btn btn-outline btn-sm">Sign out</a>
+<div class="container" style="padding-bottom:48px;">
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;">
+    <div>
+      <h1>Admin panel</h1>
+      <p>{{ users|length }} users · {{ profiles|length }} seller profiles</p>
+    </div>
+    <a href="{{ url_for('admin_logout') }}" style="font-size:.875rem;color:var(--muted);">Sign out</a>
   </div>
 
-  <!-- Users -->
-  <div class="card" style="margin-bottom:1.5rem;">
-    <h2 style="margin-bottom:1rem;">Users <span class="muted" style="font-size:.9rem;font-weight:400;">({{ users|length }})</span></h2>
+  <div class="card" style="margin-bottom:24px;">
+    <h2 style="font-size:1rem;margin-bottom:14px;">Service catalogue</h2>
+    <div>{% for s in services %}<span class="tag">{{ s }}</span>{% endfor %}</div>
+  </div>
+
+  <div class="card" style="margin-bottom:24px;overflow-x:auto;">
+    <h2 style="font-size:1rem;margin-bottom:16px;">Users</h2>
     <table>
       <thead>
-        <tr><th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th></th></tr>
+        <tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>City</th><th>Joined</th><th></th></tr>
       </thead>
       <tbody>
         {% for u in users %}
@@ -20,11 +27,12 @@
           <td>{{ u.id }}</td>
           <td>{{ u.name }}</td>
           <td>{{ u.email }}</td>
-          <td>{{ u.phone or '—' }}</td>
-          <td><span class="tag" style="{% if u.role=='seller' %}background:#fef9c3;color:#854d0e;{% endif %}">{{ u.role }}</span></td>
+          <td><span class="badge badge-{{ u.role }}">{{ u.role }}</span></td>
+          <td>{{ u.city or '—' }}</td>
+          <td style="color:var(--muted);font-size:.8rem;">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
           <td>
             <form method="POST" action="{{ url_for('admin_delete_user', uid=u.id) }}"
-                  onsubmit="return confirm('Delete user {{ u.name }}?')">
+                  onsubmit="return confirm('Delete {{ u.name }}?')">
               <button class="btn btn-danger">Delete</button>
             </form>
           </td>
@@ -34,9 +42,8 @@
     </table>
   </div>
 
-  <!-- Seller Profiles -->
-  <div class="card" style="margin-bottom:1.5rem;">
-    <h2 style="margin-bottom:1rem;">Seller profiles <span class="muted" style="font-size:.9rem;font-weight:400;">({{ profiles|length }})</span></h2>
+  <div class="card" style="overflow-x:auto;">
+    <h2 style="font-size:1rem;margin-bottom:16px;">Seller profiles</h2>
     <table>
       <thead>
         <tr><th>ID</th><th>Business</th><th>Services</th><th>Cities</th><th>Price</th><th></th></tr>
@@ -51,7 +58,7 @@
           <td style="white-space:nowrap;">{{ p.price_min }}–{{ p.price_max }}</td>
           <td>
             <form method="POST" action="{{ url_for('admin_delete_profile', pid=p.id) }}"
-                  onsubmit="return confirm('Delete profile {{ p.business_name }}?')">
+                  onsubmit="return confirm('Delete {{ p.business_name }}?')">
               <button class="btn btn-danger">Delete</button>
             </form>
           </td>
@@ -59,12 +66,6 @@
         {% endfor %}
       </tbody>
     </table>
-  </div>
-
-  <!-- Service categories -->
-  <div class="card">
-    <h2 style="margin-bottom:.75rem;">Allowed service categories</h2>
-    <div>{% for s in services %}<span class="tag">{{ s }}</span>{% endfor %}</div>
   </div>
 </div>
 {% endblock %}

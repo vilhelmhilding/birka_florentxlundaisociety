@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Find a service{% endblock %}
 {% block content %}
+<style>
+@keyframes _spin { to { transform:rotate(360deg); } }
+._spinner { display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:_spin .7s linear infinite;vertical-align:middle;margin-right:6px; }
+._spinner-purple { border-color:rgba(109,40,217,.25);border-top-color:#6d28d9; }
+</style>
 <div class="container">
 
   <!-- Tab nav -->
@@ -11,8 +16,28 @@
     </button>
     <button id="tab-quotes" onclick="showTab('quotes')"
       style="padding:10px 22px;font-size:.9rem;font-weight:600;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);cursor:pointer;">
-      Quote Requests {% if quote_requests %}<span style="background:#6d28d9;color:#fff;border-radius:20px;padding:1px 8px;font-size:.75rem;margin-left:4px;">{{ quote_requests|length }}</span>{% endif %}
+      Quote Requests {% set total_q = (quote_requests|length) + (multi_bundles|length) %}{% if total_q %}<span style="background:#6d28d9;color:#fff;border-radius:20px;padding:1px 8px;font-size:.75rem;margin-left:4px;">{{ total_q }}</span>{% endif %}
     </button>
+  </div>
+
+  <!-- Multi-service quote modal -->
+  <div id="multi-quote-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:12px;padding:28px;max-width:520px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+      <h2 style="font-size:1rem;margin-bottom:8px;">Request multi-service quote bundle</h2>
+      <p style="font-size:.82rem;color:var(--muted);margin-bottom:14px;">Describe the full project — Claude will format a quote request per service and send it to matched sellers.</p>
+      <form method="POST" action="{{ url_for('multi_quote_send') }}">
+        <input type="hidden" name="services_json" id="multi-quote-services-json" value="">
+        <textarea name="raw_text" rows="4" placeholder="E.g. Kitchen renovation in Lund on Sunday, max 5 000 kr total…" style="margin-bottom:12px;" required></textarea>
+        <div style="margin-bottom:14px;">
+          <p style="font-size:.78rem;color:var(--muted);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Services in bundle</p>
+          <div id="multi-quote-services-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button type="button" onclick="closeMultiQuoteModal()" class="btn" style="background:#f3f4f6;color:var(--muted);" id="multi-quote-cancel-btn">Cancel</button>
+          <button type="submit" class="btn" style="background:#6d28d9;color:#fff;font-weight:600;" id="multi-quote-submit-btn">Send bundle</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- Quote modal -->
@@ -24,8 +49,8 @@
         <input type="hidden" name="seller_ids" id="quote-seller-ids" value="">
         <textarea name="raw_text" rows="4" placeholder="E.g. Need an electrician for a full apartment rewiring in Lund, would like it done on a Saturday if possible." style="margin-bottom:12px;" required></textarea>
         <div style="display:flex;gap:8px;justify-content:flex-end;">
-          <button type="button" onclick="closeQuoteModal()" class="btn" style="background:#f3f4f6;color:var(--muted);">Cancel</button>
-          <button type="submit" class="btn btn-primary">Send to {{ quote_seller_ids|length }} seller(s)</button>
+          <button type="button" onclick="closeQuoteModal()" class="btn" style="background:#f3f4f6;color:var(--muted);" id="quote-cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="quote-submit-btn">Send to {{ quote_seller_ids|length }} seller(s)</button>
         </div>
       </form>
     </div>
@@ -51,34 +76,81 @@
   <div class="card" style="margin-bottom:24px;">
     <form method="POST" id="search-form">
       <div class="form-group" style="margin-bottom:12px;">
-        <textarea name="query" id="query" rows="3" autofocus
-          placeholder="E.g. I need a painter in Lund and Gothenburg, budget around 8 000 SEK">{{ search_data.get('_raw_query', '') }}</textarea>
+        <textarea name="query" id="query" rows="4" autofocus
+          placeholder="E.g. painter in Lund and Malmö, budget 5 000 SEK, available weekends
+Kitchen renovation in Stockholm — infers all relevant trades
+Electrician and carpenter in Göteborg, as soon as possible">{{ search_data.get('_raw_query', '') }}</textarea>
       </div>
-      <div class="hint-box">
-        <div class="hint-box-label">You can also include</div>
-        <div class="hint-chips">
-          <span class="hint-chip"><span class="hint-chip-label">Multiple cities</span> "painter in Lund and Malmö"</span>
-          <span class="hint-chip"><span class="hint-chip-label">Budget</span> "budget 5 000 SEK"</span>
-          <span class="hint-chip"><span class="hint-chip-label">Day</span> "available on weekends"</span>
-          <span class="hint-chip"><span class="hint-chip-label">Urgency</span> "as soon as possible"</span>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button type="submit" class="btn btn-primary">Search</button>
         <button type="button" class="btn" style="background:#f3f4f6;color:var(--muted);"
           onclick="document.getElementById('query').value=''">Clear</button>
+        <label id="photo-btn" for="photo-input" class="btn"
+          style="background:#eff6ff;color:var(--blue);cursor:pointer;display:inline-flex;align-items:center;margin:0;">
+          Search by photo
+        </label>
+        <input type="file" id="photo-input" accept="image/jpeg,image/png,image/gif,image/webp" capture="environment" style="display:none;">
       </div>
     </form>
+  </div>
+  <div id="photo-status" style="display:none;margin-bottom:20px;">
+    <div class="search-banner" style="display:flex;align-items:center;gap:10px;">
+      <span class="_spinner" style="border-color:rgba(37,99,235,.2);border-top-color:var(--blue);flex-shrink:0;width:16px;height:16px;border-width:2px;"></span>
+      <span id="photo-status-text" style="font-size:.9rem;">Analysing photo…</span>
+    </div>
   </div>
   <script>
     document.getElementById('query').addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('search-form').submit(); }
+    });
+    document.getElementById('photo-input').addEventListener('change', function() {
+      const file = this.files[0];
+      if (!file) return;
+      const status = document.getElementById('photo-status');
+      const statusText = document.getElementById('photo-status-text');
+      const btn = document.getElementById('photo-btn');
+      status.style.display = '';
+      statusText.textContent = 'Analysing photo…';
+      btn.style.pointerEvents = 'none';
+      btn.style.opacity = '0.5';
+      const fd = new FormData();
+      fd.append('photo', file);
+      fetch('/search/photo', {method:'POST', body:fd})
+        .then(r => r.json())
+        .then(data => {
+          if (data.ok) { window.location.href = '/dashboard'; }
+          else {
+            status.querySelector('.search-banner').style.background = '#fef2f2';
+            status.querySelector('.search-banner').style.borderColor = '#fca5a5';
+            statusText.textContent = data.description || 'Could not identify a service — try a clearer photo.';
+            status.querySelector('._spinner').style.display = 'none';
+            btn.style.pointerEvents = ''; btn.style.opacity = '';
+          }
+        })
+        .catch(() => {
+          statusText.textContent = 'Upload failed — please try again.';
+          status.querySelector('._spinner').style.display = 'none';
+          btn.style.pointerEvents = ''; btn.style.opacity = '';
+        });
+      this.value = '';
     });
   </script>
 
   {% set total_local = namespace(n=0) %}
   {% for results in by_city.values() %}{% set total_local.n = total_local.n + results|length %}{% endfor %}
 
+  {% if search_data.get('_photo_description') %}
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:16px;padding:14px 16px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;">
+      {% if search_data.get('_photo_url') %}
+        <img src="{{ search_data._photo_url }}" alt="Your photo"
+          style="width:120px;height:120px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid #86efac;">
+      {% endif %}
+      <div style="font-size:.87rem;color:#15803d;">
+        <div style="font-weight:700;margin-bottom:4px;">Photo analysis</div>
+        <div>{{ search_data._photo_description }}</div>
+      </div>
+    </div>
+  {% endif %}
   {% if search_data.get('unrecognized_cities') %}
     <div class="flash" style="margin-bottom:16px;">
       Couldn't recognise these locations: <strong>{{ search_data.unrecognized_cities | join(', ') }}</strong> — did you mean something else? They were left out of the search.
@@ -130,6 +202,72 @@
     {% endif %}
   {% endif %}
 
+  {# ── Multi-service parallel columns ─────────────────────────────── #}
+  {% if multi_services_data %}
+  <div style="margin-bottom:24px;">
+    {% if multi_search.get('unrecognized_cities') %}
+    <div class="flash" style="margin-bottom:14px;">
+      Couldn't recognise: <strong>{{ multi_search.unrecognized_cities | join(', ') }}</strong>
+    </div>
+    {% endif %}
+    <div class="search-banner" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+      <div>
+        <strong>{{ multi_services_data | length }} services</strong>
+        {% if multi_search.get('cities') %} · {{ multi_search.cities | join(', ') }}{% endif %}
+      </div>
+      {% set has_quote_svc = multi_services_data | selectattr('quote_seller_ids') | list %}
+      {% if has_quote_svc %}
+      <button onclick="openMultiQuoteModal()" class="btn" style="background:#6d28d9;color:#fff;font-weight:600;font-size:.84rem;padding:7px 16px;">
+        Request multi-service quote
+      </button>
+      {% endif %}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">
+      {% for svc in multi_services_data %}
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+        <div style="background:#6d28d9;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:baseline;">
+          <span style="font-weight:700;font-size:.92rem;text-transform:capitalize;">{{ svc.service }}</span>
+          <span style="font-size:.73rem;opacity:.8;">
+            {{ svc.total }} seller{{ 's' if svc.total != 1 else '' }}{% if svc.price_max %} · max {{ svc.price_max }} SEK{% endif %}
+          </span>
+        </div>
+        <div style="padding:10px;">
+          {% set col_sellers = [] %}
+          {% for rows in svc.by_city.values() %}{% for item in rows %}{% if col_sellers.append(item) %}{% endif %}{% endfor %}{% endfor %}
+          {% for item in svc.other %}{% if col_sellers.append(item) %}{% endif %}{% endfor %}
+          {% if col_sellers %}
+            {% for seller, listing, flags in col_sellers[:4] %}
+            <div style="{% if not loop.first %}border-top:1px solid var(--border);margin-top:8px;padding-top:8px;{% endif %}">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
+                <a href="{{ url_for('seller_profile', seller_id=seller.id) }}" style="text-decoration:none;color:inherit;font-weight:600;font-size:.85rem;">{{ seller.name }}</a>
+                {% if seller.seller_profile.avg_rating %}
+                <span style="font-size:.74rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;">★ {{ "%.1f"|format(seller.seller_profile.avg_rating) }}</span>
+                {% endif %}
+              </div>
+              <div style="font-size:.78rem;color:var(--muted);margin:2px 0 4px;">
+                {% if listing.get('is_quote') %}<span style="color:#6d28d9;font-weight:600;">Quote on request</span>
+                {% elif listing.get('price_min') %}from {{ listing.price_min }} SEK{% endif %}
+                {% if flags.get('over_budget') %} · <span style="color:#b45309;">over budget</span>{% endif %}
+              </div>
+              <form method="POST" action="{{ url_for('chat_start', seller_id=seller.id) }}">
+                <button type="submit" class="btn btn-blue" style="font-size:.74rem;padding:3px 10px;">Message</button>
+              </form>
+            </div>
+            {% endfor %}
+            {% if col_sellers|length > 4 %}
+            <p style="font-size:.76rem;color:var(--muted);margin-top:8px;text-align:center;">+{{ col_sellers|length - 4 }} more</p>
+            {% endif %}
+          {% else %}
+            <p style="font-size:.82rem;color:var(--muted);text-align:center;padding:20px 0;">No sellers found</p>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   {# ── Star macro ─────────────────────────────────────────────────── #}
   {% macro stars(avg, count) %}
     {% if avg %}
@@ -143,7 +281,8 @@
 
   {# ── Seller card macro ───────────────────────────────────────────── #}
   {% macro seller_card(seller, listing, flags={}) %}
-  <div class="result-card">
+  <a href="{{ url_for('seller_profile', seller_id=seller.id) }}" style="text-decoration:none;color:inherit;display:block;">
+  <div class="result-card" style="cursor:pointer;">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
       <h3 style="margin-bottom:2px;">{{ seller.name }}
         {% if flags.get('over_budget') %}<span style="font-size:.75rem;font-weight:600;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:20px;padding:2px 10px;margin-left:6px;">Above your budget</span>{% endif %}
@@ -171,11 +310,13 @@
         <span>{{ seller.email }}</span>
         {% if seller.phone %}<span>{{ seller.phone }}</span>{% endif %}
       </div>
-      <form method="POST" action="{{ url_for('chat_start', seller_id=seller.id) }}">
+      <form method="POST" action="{{ url_for('chat_start', seller_id=seller.id) }}"
+            onclick="event.stopPropagation();">
         <button type="submit" class="btn btn-blue" style="padding:6px 14px;font-size:.82rem;">Message</button>
       </form>
     </div>
   </div>
+  </a>
   {% endmacro %}
 
   {# ── Results ─────────────────────────────────────────────────────── #}
@@ -224,8 +365,104 @@
   <!-- QUOTES TAB -->
   <div id="pane-quotes" style="display:none;">
     <h2 style="font-size:1rem;margin-bottom:20px;">Your quote requests</h2>
+
+    {# ── Multi-service bundles ── #}
+    {% if multi_bundles %}
+    <div style="margin-bottom:28px;">
+      <p style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6d28d9;margin-bottom:10px;">Multi-service bundles</p>
+      {% for bundle in multi_bundles %}
+      <div class="card" style="margin-bottom:16px;border-left:3px solid #6d28d9;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+          <div>
+            <strong style="font-size:.9rem;">Bundle · {{ bundle.quote_requests | length }} services</strong>
+            <span style="font-size:.75rem;color:var(--muted);margin-left:8px;">{{ bundle.created_at.strftime('%d %b %Y %H:%M') }}</span>
+          </div>
+          <form method="POST" action="{{ url_for('multi_bundle_delete', bid=bundle.id) }}" style="flex-shrink:0;">
+            <button type="submit" class="btn" style="font-size:.75rem;padding:4px 10px;background:#fee2e2;color:#991b1b;"
+              onclick="return confirm('Delete this bundle?')">Delete</button>
+          </form>
+        </div>
+
+        {# Service columns #}
+        <div style="display:grid;grid-template-columns:repeat({{ bundle.quote_requests | length }}, minmax(200px,1fr));gap:12px;margin-bottom:12px;overflow-x:auto;">
+          {% for qr in bundle.quote_requests %}
+          {% set sorted_resp = (qr.responses | selectattr('price_offered') | sort(attribute='price_offered') | list) + (qr.responses | rejectattr('price_offered') | list) %}
+          <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+            <div style="background:#6d28d9;color:#fff;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-weight:700;font-size:.88rem;text-transform:capitalize;">{{ qr.service or '—' }}</span>
+              {% if sorted_resp %}<span style="font-size:.72rem;opacity:.85;">{{ sorted_resp|length }} response(s)</span>{% endif %}
+            </div>
+            <div style="padding:10px;">
+            {% if sorted_resp %}
+              {# Best response — always visible #}
+              {% set best = sorted_resp[0] %}
+              {% macro resp_row(resp) %}
+              <div>
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
+                  <strong style="font-size:.85rem;">{{ resp.seller.name }}</strong>
+                  {% set avg = resp.seller.seller_profile.avg_rating %}
+                  {% if avg %}<span style="font-size:.75rem;color:#f59e0b;white-space:nowrap;">★ {{ "%.1f"|format(avg) }}</span>{% endif %}
+                </div>
+                {% if resp.price_offered %}
+                <p style="font-size:.88rem;font-weight:700;color:#16a34a;margin:2px 0;">{{ resp.price_offered }} SEK</p>
+                {% endif %}
+                <p style="font-size:.78rem;color:#374151;margin:2px 0;">{{ resp.formatted_response }}</p>
+                <form method="POST" action="{{ url_for('chat_start', seller_id=resp.seller_id) }}" style="margin-top:4px;">
+                  <button type="submit" class="btn btn-blue" style="font-size:.75rem;padding:3px 10px;">Message</button>
+                </form>
+              </div>
+              {% endmacro %}
+              {{ resp_row(best) }}
+              {# Rest — collapsed #}
+              {% if sorted_resp|length > 1 %}
+              <div id="b{{ bundle.id }}-q{{ qr.id }}-more" style="display:none;">
+                {% for resp in sorted_resp[1:] %}
+                <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;">
+                  {{ resp_row(resp) }}
+                </div>
+                {% endfor %}
+              </div>
+              <button type="button"
+                onclick="toggleMore('b{{ bundle.id }}-q{{ qr.id }}-more', this)"
+                data-count="{{ sorted_resp|length - 1 }}"
+                style="margin-top:8px;font-size:.76rem;color:#6d28d9;background:none;border:none;padding:0;cursor:pointer;font-weight:600;">
+                +{{ sorted_resp|length - 1 }} more
+              </button>
+              {% endif %}
+            {% else %}
+              <p style="font-size:.78rem;color:var(--muted);font-style:italic;padding:8px 0;">Awaiting responses…</p>
+            {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        {# Bundle total #}
+        {% set ns = namespace(total=0, all_priced=true) %}
+        {% for qr in bundle.quote_requests %}
+          {% if qr.responses %}
+            {% set best_r = qr.responses | sort(attribute='price_offered') | first %}
+            {% if best_r.price_offered %}{% set ns.total = ns.total + best_r.price_offered %}{% else %}{% set ns.all_priced = false %}{% endif %}
+          {% else %}
+            {% set ns.all_priced = false %}
+          {% endif %}
+        {% endfor %}
+        {% if ns.all_priced and ns.total > 0 %}
+        <div style="border-top:1px solid var(--border);padding-top:10px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:.85rem;color:var(--muted);">Bundle best price</span>
+          <span style="font-size:1rem;font-weight:700;color:#0f766e;">{{ ns.total }} SEK</span>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {# ── Single-service quote requests ── #}
     {% if not quote_requests %}
+      {% if not multi_bundles %}
       <div class="empty"><p>No quote requests yet. Search for a service and click "Request Quote" to get started.</p></div>
+      {% endif %}
     {% else %}
       {% for qr in quote_requests %}
       <div class="card" style="margin-bottom:16px;">
@@ -299,6 +536,52 @@
   function closeQuoteModal() {
     document.getElementById('quote-modal').style.display = 'none';
   }
+
+  const _multiServices = {{ multi_services_json | tojson if multi_services_json else '[]' }};
+  function openMultiQuoteModal() {
+    const services = _multiServices.map(s => ({
+      service: s.service,
+      price_max: s.price_max,
+      requested_day: s.requested_day,
+      quote_seller_ids: s.quote_seller_ids
+    }));
+    document.getElementById('multi-quote-services-json').value = JSON.stringify(services);
+    const list = document.getElementById('multi-quote-services-list');
+    list.innerHTML = services.map(s =>
+      `<span class="tag" style="background:#ede9fe;color:#6d28d9;">${s.service}${s.quote_seller_ids.length ? ' · ' + s.quote_seller_ids.length + ' seller(s)' : ''}</span>`
+    ).join('');
+    document.getElementById('multi-quote-modal').style.display = 'flex';
+  }
+  function closeMultiQuoteModal() {
+    const btn = document.getElementById('multi-quote-submit-btn');
+    btn.disabled = false;
+    btn.innerHTML = 'Send bundle';
+    document.getElementById('multi-quote-cancel-btn').disabled = false;
+    document.getElementById('multi-quote-modal').style.display = 'none';
+  }
+
+  // Loading on quote modal submit
+  document.querySelector('#quote-modal form').addEventListener('submit', function() {
+    const btn = document.getElementById('quote-submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="_spinner"></span>Sending…';
+    document.getElementById('quote-cancel-btn').disabled = true;
+  });
+  document.querySelector('#multi-quote-modal form').addEventListener('submit', function() {
+    const btn = document.getElementById('multi-quote-submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="_spinner"></span>Sending…';
+    document.getElementById('multi-quote-cancel-btn').disabled = true;
+  });
+
+  // Bundle collapse/expand
+  function toggleMore(id, btn) {
+    const el = document.getElementById(id);
+    const open = el.style.display !== 'none';
+    el.style.display = open ? 'none' : '';
+    btn.textContent = open ? '+' + btn.dataset.count + ' more' : 'Show less';
+  }
+
 
   const tabs = document.querySelectorAll('.city-tab');
   if (tabs.length) {

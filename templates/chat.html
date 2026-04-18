@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Messages{% endblock %}
 {% block content %}
+<style>
+@keyframes _spin { to { transform:rotate(360deg); } }
+._spinner { display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:_spin .7s linear infinite;vertical-align:middle;margin-right:5px; }
+</style>
 <div class="container">
   <div class="page-header" style="padding-bottom:16px;">
     <h1>Messages</h1>
@@ -276,7 +280,8 @@
             const rawText = document.getElementById('qr-raw-text').value.trim();
             if (!rawText || !activeQrId) return;
             const btn = document.getElementById('qr-submit-btn');
-            btn.disabled = true; btn.textContent = 'Sending…';
+            btn.disabled = true;
+            btn.innerHTML = '<span class="_spinner"></span>Claude is formatting…';
             try {
               const resp = await fetch('/quote/' + activeQrId + '/respond', {
                 method: 'POST',
@@ -290,7 +295,7 @@
                 closeQuoteRespondModal();
               }
             } finally {
-              btn.disabled = false; btn.textContent = 'Send response';
+              btn.disabled = false; btn.innerHTML = 'Send response';
             }
           }
 

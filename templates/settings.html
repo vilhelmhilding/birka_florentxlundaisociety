@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+{% set p = user.seller_profile %}
+
+<div class="container" style="padding:32px 24px 60px;max-width:720px;">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:28px;">
+    <div>
+      <h1 style="font-size:1.4rem;font-weight:800;letter-spacing:-.02em;">Settings</h1>
+      <p style="font-size:.88rem;color:var(--muted);margin-top:4px;">Manage your website, profile context, and account.</p>
+    </div>
+    <a href="{{ url_for('dashboard') }}" class="btn" style="font-size:.85rem;white-space:nowrap;">← Dashboard</a>
+  </div>
+
+  <!-- ── Website ───────────────────────────────────────────────────────── -->
+  <div class="card" style="margin-bottom:20px;">
+    <h2 style="font-size:.85rem;font-weight:700;margin-bottom:16px;">Website</h2>
+
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <input type="url" id="scrape-url" placeholder="https://www.yourwebsite.se"
+        value="{{ p.website_url or '' }}"
+        style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:.88rem;font-family:inherit;background:var(--bg);color:var(--text);outline:none;">
+      <button type="button" id="scrape-btn" class="btn btn-primary" style="white-space:nowrap;" onclick="scrapeWebsite()">Scrape website</button>
+    </div>
+    <div id="scrape-progress" style="display:none;margin-bottom:8px;">
+      <div style="background:var(--border);border-radius:99px;height:5px;overflow:hidden;">
+        <div id="scrape-bar" style="height:100%;width:0%;background:#6d28d9;border-radius:99px;transition:width .4s ease;"></div>
+      </div>
+      <p id="scrape-progress-text" style="font-size:.78rem;color:var(--muted);margin-top:4px;"></p>
+    </div>
+    <div id="scrape-status" style="font-size:.82rem;display:none;"></div>
+
+    {% if p.website_url %}
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <div>
+        <p style="font-size:.85rem;font-weight:500;word-break:break-all;">{{ p.website_url }}</p>
+        <p style="font-size:.78rem;color:var(--muted);margin-top:2px;">
+          {{ p.website_page_count or 0 }} pages
+          {% if p.website_scraped_at %} · {{ p.website_scraped_at.strftime('%d %b %Y, %H:%M') }}{% endif %}
+        </p>
+      </div>
+      <form method="POST" action="{{ url_for('website_delete') }}" style="flex-shrink:0;">
+        <button type="submit" class="btn" style="font-size:.8rem;padding:5px 12px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;">Delete pages</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Profile context ──────────────────────────────────────────────── -->
+  <div class="card" style="margin-bottom:20px;">
+    <h2 style="font-size:.85rem;font-weight:700;margin-bottom:4px;">Profile context</h2>
+    <p style="font-size:.8rem;color:var(--muted);margin-bottom:14px;">This text is analysed to build your service listings, cities, and profile description. Edit freely — then click Save &amp; analyse.</p>
+
+    {% if p.website_page_count %}
+    <div id="ctx-section" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+      <div>
+        <p style="font-size:.85rem;font-weight:500;margin:0;">Fill from website</p>
+        <p style="font-size:.78rem;color:var(--muted);margin:2px 0 0;">{{ p.website_page_count }} pages stored</p>
+      </div>
+      <button type="button" id="ctx-btn" class="btn btn-primary" style="font-size:.85rem;white-space:nowrap;" onclick="fillFromWebsite()">Fill from website</button>
+    </div>
+    <div id="ctx-status" style="display:none;font-size:.82rem;margin-bottom:10px;"></div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('settings') }}">
+      <input type="hidden" name="action" value="analyse">
+      <div class="form-group" style="margin-bottom:12px;">
+        <textarea name="description" id="desc-textarea" rows="9"
+          style="font-size:.85rem;"
+          placeholder="Describe your services, cities, pricing, and availability…">{{ p.raw_description or '' }}</textarea>
+      </div>
+      <div class="hint-box" style="margin-bottom:14px;">
+        <div class="hint-box-label">Tips — what to include</div>
+        <div class="hint-chips">
+          <span class="hint-chip"><span class="hint-chip-label">Services</span> "painting, plastering and tiling"</span>
+          <span class="hint-chip"><span class="hint-chip-label">Cities</span> "Stockholm, Uppsala and Södertälje"</span>
+          <span class="hint-chip"><span class="hint-chip-label">Availability</span> "weekdays and Saturdays"</span>
+          <span class="hint-chip"><span class="hint-chip-label">Pricing</span> "from 2 500 SEK" or "quote on request"</span>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save &amp; analyse</button>
+    </form>
+  </div>
+
+  <!-- ── Account ──────────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2 style="font-size:.85rem;font-weight:700;margin-bottom:16px;">Account</h2>
+    <div style="display:grid;gap:4px;">
+      <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:.82rem;color:var(--muted);width:110px;flex-shrink:0;padding-top:1px;">Name</span>
+        <span style="font-size:.88rem;">{{ user.name or '—' }}</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:.82rem;color:var(--muted);width:110px;flex-shrink:0;padding-top:1px;">Login email</span>
+        <span style="font-size:.88rem;color:var(--muted);">{{ user.email }}</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:.82rem;color:var(--muted);width:110px;flex-shrink:0;padding-top:1px;">Contact email</span>
+        <span style="font-size:.88rem;">{{ p.contact_email or '—' }}</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:10px 0;">
+        <span style="font-size:.82rem;color:var(--muted);width:110px;flex-shrink:0;padding-top:1px;">Phone</span>
+        <span style="font-size:.88rem;">{{ user.phone or '—' }}</span>
+      </div>
+    </div>
+    <p style="font-size:.78rem;color:var(--muted);margin-top:12px;">Name, contact email, and phone are updated automatically when you run <em>Save &amp; analyse</em>.</p>
+  </div>
+</div>
+
+<script>
+let _scrapeEvt = null;
+let _descEvt   = null;
+
+function scrapeWebsite() {
+  const urlInput = document.getElementById('scrape-url');
+  const btn      = document.getElementById('scrape-btn');
+  const status   = document.getElementById('scrape-status');
+  const progress = document.getElementById('scrape-progress');
+  const bar      = document.getElementById('scrape-bar');
+  const progText = document.getElementById('scrape-progress-text');
+  const url      = urlInput.value.trim();
+  if (!url) { urlInput.focus(); return; }
+
+  if (_scrapeEvt) _scrapeEvt.close();
+  btn.disabled = true;
+  btn.textContent = 'Scraping…';
+  status.style.display = 'none';
+  progress.style.display = 'block';
+  bar.style.background = '#6d28d9';
+  bar.style.width = '1%';
+  progText.textContent = 'Connecting…';
+
+  _scrapeEvt = new EventSource('/scrape?url=' + encodeURIComponent(url));
+  _scrapeEvt.onmessage = function(e) {
+    const d = JSON.parse(e.data);
+    if (d.type === 'discovering') {
+      bar.style.width = '5%'; progText.textContent = 'Finding pages via sitemap…';
+    } else if (d.type === 'discovered') {
+      bar.style.width = '15%'; progText.textContent = d.count + ' pages found — filtering with AI…';
+    } else if (d.type === 'filtering') {
+      bar.style.width = '20%'; progText.textContent = 'AI reviewing ' + d.total + ' page titles…';
+    } else if (d.type === 'filtered') {
+      bar.style.width = '28%'; progText.textContent = 'Fetching ' + d.kept + ' relevant pages…';
+    } else if (d.type === 'progress') {
+      bar.style.width = Math.min(28 + d.pages * 0.65, 94) + '%';
+      progText.textContent = 'Fetching… ' + d.pages + ' pages done';
+    } else if (d.type === 'done') {
+      bar.style.width = '100%'; bar.style.background = '#16a34a';
+      setTimeout(() => { progress.style.display = 'none'; }, 600);
+      status.style.display = 'block'; status.style.color = '#16a34a';
+      status.textContent = d.pages_saved + ' pages saved.';
+      _scrapeEvt.close(); btn.disabled = false; btn.textContent = 'Re-scrape';
+      // Show ctx section if it wasn't visible
+      const ctx = document.getElementById('ctx-section');
+      if (ctx) {
+        ctx.style.display = 'flex';
+        ctx.querySelector('p:last-of-type').textContent = d.pages_saved + ' pages stored';
+      }
+    } else if (d.type === 'error') {
+      progress.style.display = 'none';
+      status.style.display = 'block'; status.style.color = '#dc2626';
+      status.textContent = d.message;
+      _scrapeEvt.close(); btn.disabled = false; btn.textContent = 'Scrape website';
+    }
+  };
+  _scrapeEvt.onerror = function() {
+    progress.style.display = 'none';
+    status.style.display = 'block'; status.style.color = '#dc2626';
+    status.textContent = 'Connection lost. Try again.';
+    _scrapeEvt.close(); btn.disabled = false; btn.textContent = 'Scrape website';
+  };
+}
+
+function fillFromWebsite() {
+  const btn      = document.getElementById('ctx-btn');
+  const status   = document.getElementById('ctx-status');
+  const textarea = document.getElementById('desc-textarea');
+
+  if (_descEvt) _descEvt.close();
+  btn.disabled = true; btn.textContent = 'Generating…';
+  status.style.display = 'none';
+  textarea.value = '';
+
+  _descEvt = new EventSource('/website/describe');
+  _descEvt.onmessage = function(e) {
+    const d = JSON.parse(e.data);
+    if (d.type === 'chunk') {
+      textarea.value += d.text;
+      textarea.scrollTop = textarea.scrollHeight;
+    } else if (d.type === 'done') {
+      status.style.display = 'block'; status.style.color = '#16a34a';
+      status.textContent = 'Done — ' + d.pages_read + ' pages. Review and click Save & analyse.';
+      textarea.focus(); _descEvt.close(); btn.disabled = false; btn.textContent = 'Regenerate from website';
+    } else if (d.type === 'error') {
+      status.style.display = 'block'; status.style.color = '#dc2626';
+      status.textContent = d.message;
+      _descEvt.close(); btn.disabled = false; btn.textContent = 'Fill from website';
+    }
+  };
+  _descEvt.onerror = function() {
+    status.style.display = 'block'; status.style.color = '#dc2626';
+    status.textContent = 'Connection lost. Try again.';
+    _descEvt.close(); btn.disabled = false; btn.textContent = 'Fill from website';
+  };
+}
+
+document.getElementById('scrape-url').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); scrapeWebsite(); }
+});
+</script>
+{% endblock %}

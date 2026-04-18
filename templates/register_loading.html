@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Building your profile — Birka</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --accent: #111110;
+      --muted:  #706f6c;
+      --border: #e4e4de;
+      --green:  #16a34a;
+      --blue:   #1f4de4;
+      --red:    #dc2626;
+      --bg:     #f4f4f1;
+    }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap {
+      text-align: center;
+      padding: 0 28px;
+      width: 100%;
+      max-width: 440px;
+    }
+    .logo {
+      font-size: 1.3rem;
+      font-weight: 900;
+      letter-spacing: .08em;
+      color: var(--accent);
+      margin-bottom: 48px;
+      display: block;
+    }
+    .title {
+      font-size: 1.55rem;
+      font-weight: 800;
+      letter-spacing: -.02em;
+      line-height: 1.2;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      font-size: .9rem;
+      color: var(--muted);
+      margin-bottom: 44px;
+      word-break: break-all;
+    }
+    .steps {
+      list-style: none;
+      text-align: left;
+      display: inline-block;
+      min-width: 260px;
+      margin-bottom: 40px;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 9px 0;
+      font-size: .9rem;
+      color: var(--muted);
+      transition: color .25s;
+    }
+    .step.active { color: var(--accent); font-weight: 500; }
+    .step.done   { color: var(--green); }
+    .step-icon {
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    /* Pending: empty circle */
+    .icon-pending {
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--border);
+      border-radius: 50%;
+      margin: 6px;
+    }
+    /* Active: pulsing dot */
+    .icon-active {
+      width: 10px;
+      height: 10px;
+      background: var(--blue);
+      border-radius: 50%;
+      margin: 6px;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    /* Done: checkmark */
+    .icon-done {
+      color: var(--green);
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: .5; transform: scale(.7); }
+    }
+    .error-box {
+      display: none;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-size: .88rem;
+      color: var(--red);
+      text-align: left;
+      margin-top: 8px;
+    }
+    .error-box a { color: var(--red); text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <span class="logo">ᛒᛁᚱᚴᛅ</span>
+
+  <h1 class="title">Building your profile…</h1>
+  <p class="subtitle" id="url-label">Analysing your website</p>
+
+  <ul class="steps">
+    <li class="step" id="step-discover">
+      <span class="step-icon"><span class="icon-pending"></span></span>
+      <span>Discovering pages</span>
+    </li>
+    <li class="step" id="step-filter">
+      <span class="step-icon"><span class="icon-pending"></span></span>
+      <span>Filtering relevant content</span>
+    </li>
+    <li class="step" id="step-fetch">
+      <span class="step-icon"><span class="icon-pending"></span></span>
+      <span id="step-fetch-label">Fetching pages</span>
+    </li>
+    <li class="step" id="step-analyse">
+      <span class="step-icon"><span class="icon-pending"></span></span>
+      <span>Analysing with AI</span>
+    </li>
+    <li class="step" id="step-build">
+      <span class="step-icon"><span class="icon-pending"></span></span>
+      <span>Building your profile</span>
+    </li>
+  </ul>
+
+  <div class="error-box" id="error-box">
+    <strong>Something went wrong</strong><br>
+    <span id="error-msg"></span><br>
+    <a href="{{ url_for('register') }}">Try again</a>
+  </div>
+</div>
+
+<script>
+const steps = {
+  discover: document.getElementById('step-discover'),
+  filter:   document.getElementById('step-filter'),
+  fetch:    document.getElementById('step-fetch'),
+  analyse:  document.getElementById('step-analyse'),
+  build:    document.getElementById('step-build'),
+};
+
+function setActive(el) {
+  el.classList.add('active');
+  el.querySelector('.step-icon').innerHTML = '<span class="icon-active"></span>';
+}
+function setDone(el) {
+  el.classList.remove('active');
+  el.classList.add('done');
+  el.querySelector('.step-icon').innerHTML = '<span class="icon-done">✓</span>';
+}
+
+// Start discovering immediately
+setActive(steps.discover);
+
+const es = new EventSource('{{ url_for("register_progress") }}');
+
+es.onmessage = function(e) {
+  const d = JSON.parse(e.data);
+
+  if (d.type === 'discovered') {
+    setDone(steps.discover);
+    setActive(steps.filter);
+    document.getElementById('url-label').textContent = d.count + ' pages found';
+
+  } else if (d.type === 'filtering') {
+    // already active
+  } else if (d.type === 'filtered') {
+    setDone(steps.filter);
+    setActive(steps.fetch);
+    document.getElementById('url-label').textContent = d.kept + ' pages approved';
+    document.getElementById('step-fetch-label').textContent = 'Fetching ' + d.kept + ' pages';
+
+  } else if (d.type === 'progress') {
+    document.getElementById('step-fetch-label').textContent = 'Fetching pages — ' + d.pages + ' done';
+
+  } else if (d.type === 'analysing') {
+    setDone(steps.fetch);
+    setActive(steps.analyse);
+    document.getElementById('url-label').textContent = d.pages + ' pages read';
+
+  } else if (d.type === 'parsing') {
+    setDone(steps.analyse);
+    setActive(steps.build);
+
+  } else if (d.type === 'done') {
+    setDone(steps.build);
+    es.close();
+    setTimeout(() => { window.location.href = '{{ url_for("dashboard") }}'; }, 700);
+
+  } else if (d.type === 'error') {
+    es.close();
+    document.getElementById('error-box').style.display = 'block';
+    document.getElementById('error-msg').textContent = d.message;
+  }
+};
+
+es.onerror = function() {
+  es.close();
+  document.getElementById('error-box').style.display = 'block';
+  document.getElementById('error-msg').textContent = 'Connection lost.';
+};
+</script>
+</body>
+</html>

@@ -17,6 +17,9 @@
     <div class="nav-links">
       {% if session.get('user_id') %}
         <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        {% if session.get('role') == 'seller' %}
+        <a href="{{ url_for('settings') }}">Settings</a>
+        {% endif %}
         <a href="{{ url_for('chat_list') }}" style="position:relative;">
           Messages
           {% if unread_count %}

@@ -25,10 +25,10 @@ Rules for service categories:
 """
 
 
-def _call(prompt: str) -> str:
+def _call(prompt: str, max_tokens: int = 1024) -> str:
     msg = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=512,
+        max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}]
     )
     return msg.content[0].text.strip()
@@ -54,6 +54,8 @@ From the seller description, extract:
    - price_max: integer in SEK (null if not mentioned or if is_quote)
    - is_quote: true if the seller explicitly offers quote-based / on-request pricing; false or omit otherwise
 
+CRITICAL: Only list services the seller directly performs themselves. Do NOT create listings for trades they merely subcontract, coordinate, or manage on behalf of clients. If a seller says "we coordinate electricians and plumbers" or "we handle all trades", that means they project-manage those trades — do not list electrician or plumber as their own services.
+
 If a seller offers multiple services with different conditions, produce multiple listing objects.
 If all services share the same conditions, one object per service is still required.
 
@@ -72,7 +74,7 @@ Important: unrecognized_cities must only contain location strings explicitly wri
 Seller description: {description}
 City (from registration, use only if no city found in description): {city}"""
     try:
-        raw = _call(prompt)
+        raw = _call(prompt, max_tokens=2048)
         raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         result = json.loads(raw)
         log.debug(f"parse_seller LLM response: {raw}")
@@ -123,6 +125,49 @@ Default city (use only if no city found in query): {default_city}"""
     except Exception as e:
         log.error(f"parse_buyer FAILED: {e}")
         return {"service": None, "cities": [default_city] if default_city else [], "price_max": None, "requested_day": None}
+
+
+def parse_buyer_multi(query: str, default_city: str, existing: list[str]) -> dict:
+    """Like parse_buyer but extracts ALL services mentioned in the query.
+    Returns {services: [{service, price_max, requested_day}, ...], cities: [...], unrecognized_cities: [...]}
+    """
+    existing_str = ", ".join(existing) if existing else "(none yet)"
+    prompt = f"""You are a query mapper for a home and local services marketplace.
+
+Existing service categories: {existing_str}
+
+{CITY_RULES}
+{CATEGORY_RULES}
+
+From the buyer query below, extract or infer ALL distinct services the buyer needs:
+- Explicit services (e.g. "painter and electrician") → extract each as a separate entry.
+- Project or renovation descriptions (e.g. "renovate my kitchen", "fix bathroom", "build a deck") → infer the typical trades involved (e.g. kitchen renovation → plumber, electrician, carpenter, tiler, painter — use judgement on which are most likely needed).
+- Single clear service → single-element array.
+- Only use null for a service if the query has nothing to do with home or local services.
+
+1. services: JSON array — one object per distinct service:
+   - service: category string (reuse/create per rules), null only if truly unrelated to home services
+   - price_max: integer SEK budget for this service (split shared budget evenly if applicable; null otherwise)
+   - requested_day: lowercase weekday if mentioned, null otherwise
+2. cities: JSON array of Swedish cities. Use [default_city] if none mentioned.
+3. unrecognized_cities: cities that could not be matched. Empty array if all matched.
+
+Return ONLY valid JSON.
+Example explicit: {{"services": [{{"service": "painter", "price_max": 5000, "requested_day": "sunday"}}, {{"service": "plumber", "price_max": null, "requested_day": "sunday"}}], "cities": ["Lund"], "unrecognized_cities": []}}
+Example inferred: {{"services": [{{"service": "carpenter", "price_max": null, "requested_day": null}}, {{"service": "electrician", "price_max": null, "requested_day": null}}, {{"service": "painter", "price_max": null, "requested_day": null}}], "cities": ["Stockholm"], "unrecognized_cities": []}}
+
+Buyer query: {query}
+Default city (use only if no city found in query): {default_city}"""
+    try:
+        raw = _call(prompt)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        result = json.loads(raw)
+        log.debug(f"parse_buyer_multi LLM response: {raw}")
+        return result
+    except Exception as e:
+        log.error(f"parse_buyer_multi FAILED: {e}")
+        return {"services": [{"service": None, "price_max": None, "requested_day": None}],
+                "cities": [default_city] if default_city else [], "unrecognized_cities": []}
 
 
 def match_sellers(parsed: dict, sellers) -> dict:
@@ -197,6 +242,151 @@ Return only the formatted text."""
     except Exception as e:
         log.error(f"format_quote_request FAILED: {e}")
         return raw_text
+
+
+def summarise_to_profile(raw_description: str) -> str:
+    """Condense a full description into 1–3 sentences for the profile card."""
+    prompt = f"""Condense the following business description into 1–3 short sentences for a profile card.
+Keep the most important facts: main services, key cities/regions, and pricing if mentioned.
+Write in third person in English (e.g. "SERA BYGG offers…", "A Malmö-based painter…"). No headings, no bullet points.
+
+Description:
+{raw_description[:5000]}
+
+Return only the short profile text."""
+    try:
+        return _call(prompt)
+    except Exception as e:
+        log.error(f"summarise_to_profile FAILED: {e}")
+        return ""
+
+
+def description_from_website(pages: list[dict]):
+    """Stream a seller description from scraped website pages. Yields text chunks."""
+    if not pages:
+        return
+    combined = ""
+    for p in pages:
+        title = p.get("title") or p.get("url", "")
+        text = p.get("text", "")
+        if text:
+            combined += f"\n\n--- {title} ---\n{text}"
+    prompt = f"""Extract business info from these {len(pages)} scraped website pages and write a first-person description for a Swedish local services marketplace.
+
+Include everything relevant: every service and specialisation, every city/area served, all pricing (SEK amounts, ranges, hourly rates), availability (days/hours), company background (age, certifications, team size), and any detail useful to a buyer choosing between providers. Be complete — this text is parsed by AI to build structured listings.
+
+Write in English using "we" (not "I"). Return only the description.
+
+--- PAGES ---
+{combined}"""
+    log.info(f"description_from_website: {len(pages)} pages, {len(combined)} combined chars → Claude")
+    try:
+        with client.messages.stream(
+            model="claude-sonnet-4-6",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}]
+        ) as stream:
+            for chunk in stream.text_stream:
+                yield chunk
+    except Exception as e:
+        log.error(f"description_from_website stream failed: {e}")
+        raise
+
+
+def filter_relevant_pages(pages: list[dict]) -> set[str]:
+    """Given [{url, title}] pairs, return URLs to keep. Errs on side of keeping."""
+    if not pages:
+        return set()
+    lines = "\n".join(
+        f"{i+1}. {p.get('title') or '(no title)'}  [{p['url']}]"
+        for i, p in enumerate(pages)
+    )
+    prompt = f"""You are filtering pages from a company website before scraping.
+
+KEEP pages that are likely to contain business-relevant content:
+services offered, service areas/cities, pricing, about/team/company info,
+certifications, contact details, references/portfolio, FAQ, news about the company.
+
+SKIP pages that are clearly irrelevant:
+individual customer reviews or testimonials (e.g. "Review from John"),
+individual job application pages, privacy policy, cookie policy, terms & conditions,
+GDPR notices, error pages (404 etc.).
+
+When in doubt → KEEP.
+
+Pages to review ({len(pages)} total):
+{lines}
+
+Return ONLY a JSON array of the page numbers (1-indexed) to KEEP. Example: [1, 3, 5, 7]
+No explanation."""
+    try:
+        raw = _call(prompt, max_tokens=2048)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        indices = json.loads(raw)
+        return {pages[i - 1]["url"] for i in indices if isinstance(i, int) and 1 <= i <= len(pages)}
+    except Exception as e:
+        log.error(f"filter_relevant_pages FAILED: {e} — keeping all")
+        return {p["url"] for p in pages}
+
+
+def extract_contact_info(description: str) -> dict:
+    """Extract best name, email, phone from description. Returns partial dict with non-null values only."""
+    prompt = f"""From this business description, extract the primary contact details.
+- name: company name or primary contact person name (string or null)
+- email: best business email address (string or null). If multiple exist, prefer the general contact (info@, hej@) over department-specific ones.
+- phone: best business phone number in original format (string or null). If multiple exist, prefer the main switchboard or owner's number.
+
+Return ONLY valid JSON: {{"name": "...", "email": "...", "phone": "..."}}
+Use null for any field not found.
+
+Description:
+{description}"""
+    try:
+        raw = _call(prompt)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        data = json.loads(raw)
+        return {k: v for k, v in data.items() if v}
+    except Exception as e:
+        log.error(f"extract_contact_info FAILED: {e}")
+        return {}
+
+
+def analyze_photo_for_service(image_b64: str, media_type: str, default_city: str, existing: list[str]) -> dict:
+    """Use Claude Vision to identify what home/local service is needed from a photo."""
+    existing_str = ", ".join(existing) if existing else "(none yet)"
+    prompt = f"""You are a service identifier for a Swedish home and local services marketplace.
+
+Existing service categories: {existing_str}
+
+{CITY_RULES}
+{CATEGORY_RULES}
+
+Look at this image and determine what home or local service the buyer likely needs.
+
+Extract:
+1. service: the best matching service category (e.g. "painter", "plumber", "electrician", "cleaner"). Must be lowercase, 1-3 words, in English. Return null if the image clearly has nothing to do with a home or local service need.
+2. description: a 1-2 sentence plain-English description of what you see and why this service is needed.
+3. cities: JSON array of any Swedish cities visible or mentioned in the image. Use ["{default_city}"] if none found.
+
+Return ONLY valid JSON.
+Example: {{"service": "painter", "description": "The photo shows peeling paint on an interior wall that needs repainting.", "cities": ["{default_city}"]}}
+Unrecognizable example: {{"service": null, "description": "The image does not appear to show a service need.", "cities": ["{default_city}"]}}"""
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+                {"type": "text", "text": prompt}
+            ]}]
+        )
+        raw = msg.content[0].text.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        result = json.loads(raw)
+        log.debug(f"analyze_photo_for_service LLM response: {raw}")
+        return result
+    except Exception as e:
+        log.error(f"analyze_photo_for_service FAILED: {e}")
+        return {"service": None, "description": "Could not analyse the image.", "cities": [default_city] if default_city else []}
 
 
 def format_quote_response(raw_text: str, quote_body: str) -> tuple[str, int | None]:

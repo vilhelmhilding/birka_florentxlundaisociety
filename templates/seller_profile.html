@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Dashboard{% endblock %}
+{% block title %}{{ seller.name }}{% endblock %}
 {% block content %}
-{% set p = user.seller_profile %}
+{% set p = seller.seller_profile %}
 {% set listings = p.get_listings() %}
 {% set cities = p.get_cities() %}
 
@@ -10,21 +10,20 @@
   <!-- Header -->
   <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:28px;flex-wrap:wrap;">
     <div style="max-width:580px;">
-      <h1 style="font-size:1.7rem;font-weight:800;letter-spacing:-.02em;line-height:1.2;">{{ user.name or 'Your business' }}</h1>
+      <h1 style="font-size:1.7rem;font-weight:800;letter-spacing:-.02em;line-height:1.2;">{{ seller.name }}</h1>
       {% if p.profile_description %}
       <p style="font-size:.95rem;color:var(--muted);margin-top:8px;line-height:1.65;">{{ p.profile_description }}</p>
-      {% else %}
-      <p style="font-size:.9rem;color:var(--muted);margin-top:8px;">No profile yet — <a href="{{ url_for('settings') }}">open Settings</a> to set up your business.</p>
       {% endif %}
     </div>
-    <a href="{{ url_for('settings') }}" class="btn" style="white-space:nowrap;flex-shrink:0;font-size:.85rem;">Settings</a>
+    <form method="POST" action="{{ url_for('chat_start', seller_id=seller.id) }}" style="flex-shrink:0;">
+      <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Message</button>
+    </form>
   </div>
 
   <div style="display:grid;grid-template-columns:3fr 2fr;gap:20px;align-items:start;">
 
     <!-- Left column -->
     <div>
-      <!-- Services -->
       <div class="card">
         <h2 style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:16px;">Services</h2>
         {% if listings %}
@@ -46,44 +45,20 @@
           {% endfor %}
         </div>
         {% else %}
-        <p style="font-size:.88rem;color:var(--muted);">No services yet. Add your description in <a href="{{ url_for('settings') }}">Settings</a>.</p>
+        <p style="font-size:.88rem;color:var(--muted);">No services listed.</p>
         {% endif %}
       </div>
-
-      <!-- Transactions -->
-      {% set txns = user.transactions_as_seller | sort(attribute='created_at', reverse=True) %}
-      {% if txns %}
-      <div class="card" style="margin-top:16px;">
-        <h2 style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:14px;">Transactions</h2>
-        {% for t in txns %}
-        <div style="{% if not loop.first %}margin-top:12px;padding-top:12px;border-top:1px solid var(--border);{% endif %}display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-          <div>
-            <p style="font-size:.9rem;font-weight:600;">{{ t.description }}</p>
-            <p style="font-size:.78rem;color:var(--muted);">{{ t.buyer.name }} · {{ t.created_at.strftime('%d %b %Y') }}</p>
-          </div>
-          <div style="text-align:right;">
-            <p style="font-size:.92rem;font-weight:700;">{{ t.amount }} SEK</p>
-            {% if t.status == 'completed' %}
-              <span class="badge" style="background:#dcfce7;color:#166534;">Paid</span>
-            {% else %}
-              <span class="badge" style="background:#fef9c3;color:#92400e;">Pending</span>
-            {% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
     </div>
 
     <!-- Right column -->
     <div>
-      <!-- Contact card -->
+      <!-- Contact -->
       <div class="card" style="margin-bottom:16px;">
         <h2 style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:14px;">Contact</h2>
-        {% if user.phone %}
+        {% if seller.phone %}
         <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;">
           <span style="color:var(--muted);width:18px;font-size:.85rem;margin-top:1px;">📞</span>
-          <p style="font-size:.9rem;">{{ user.phone }}</p>
+          <p style="font-size:.9rem;">{{ seller.phone }}</p>
         </div>
         {% endif %}
         {% if p.contact_email %}
@@ -95,11 +70,13 @@
         {% if p.website_url %}
         <div style="display:flex;gap:10px;align-items:flex-start;">
           <span style="color:var(--muted);width:18px;font-size:.85rem;margin-top:1px;">🌐</span>
-          <a href="{{ p.website_url }}" target="_blank" rel="noopener" style="font-size:.88rem;word-break:break-all;">{{ p.website_url | replace('https://','') | replace('http://','') | replace('www.','') }}</a>
+          <a href="{{ p.website_url }}" target="_blank" rel="noopener" style="font-size:.88rem;word-break:break-all;">
+            {{ p.website_url | replace('https://','') | replace('http://','') | replace('www.','') }}
+          </a>
         </div>
         {% endif %}
-        {% if not user.phone and not p.contact_email and not p.website_url %}
-        <p style="font-size:.85rem;color:var(--muted);">No contact info yet. <a href="{{ url_for('settings') }}">Add in Settings →</a></p>
+        {% if not seller.phone and not p.contact_email and not p.website_url %}
+        <p style="font-size:.85rem;color:var(--muted);">No contact info available.</p>
         {% endif %}
       </div>
 

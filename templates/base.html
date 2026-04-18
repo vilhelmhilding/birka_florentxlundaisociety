@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Birka{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,17 +13,20 @@
 <body>
 <nav>
   <div class="inner">
-    <a class="logo" href="/">ᛒᛁᚱᚴᛅ</a>
+    <a class="logo" href="{{ url_for('index') }}">ᛒᛁᚱᚴᛅ</a>
     <div class="nav-links">
-      {% if user %}
-        <span style="color:var(--muted);font-size:.875rem;padding:6px 12px;">{{ user.name }}</span>
-        {% if user.role == 'seller' %}
-          <a href="{{ url_for('seller_setup') }}">Edit Profile</a>
-        {% endif %}
+      {% if session.get('user_id') %}
+        <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        <a href="{{ url_for('chat_list') }}" style="position:relative;">
+          Messages
+          {% if unread_count %}
+            <span style="position:absolute;top:-6px;right:-14px;background:var(--red);color:#fff;border-radius:10px;font-size:.65rem;font-weight:700;padding:1px 5px;line-height:1.4;">{{ unread_count }}</span>
+          {% endif %}
+        </a>
         <a href="{{ url_for('logout') }}">Sign out</a>
       {% else %}
         <a href="{{ url_for('login') }}">Sign in</a>
-        <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">Get started</a>
+        <a href="{{ url_for('register') }}" class="btn btn-primary" style="padding:7px 16px;font-size:.85rem;">Get started</a>
       {% endif %}
     </div>
   </div>
@@ -32,11 +35,9 @@
 <main>
   <div class="container">
     {% with msgs = get_flashed_messages() %}
-      {% if msgs %}
-        {% for m in msgs %}
-          <div class="flash" style="margin-top:16px;">{{ m }}</div>
-        {% endfor %}
-      {% endif %}
+      {% for m in msgs %}
+        <div class="flash" style="margin-top:16px;">{{ m }}</div>
+      {% endfor %}
     {% endwith %}
   </div>
   {% block content %}{% endblock %}
@@ -47,12 +48,9 @@
     <span class="footer-logo">ᛒᛁᚱᚴᛅ</span>
     <div class="footer-links">
       <a href="{{ url_for('index') }}">Home</a>
-      {% if user %}
-        {% if user.role == 'seller' %}
-          <a href="{{ url_for('seller_dashboard') }}">Dashboard</a>
-        {% else %}
-          <a href="{{ url_for('buyer_search') }}">Search</a>
-        {% endif %}
+      {% if session.get('user_id') %}
+        <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        <a href="{{ url_for('chat_list') }}">Messages</a>
       {% else %}
         <a href="{{ url_for('login') }}">Sign in</a>
         <a href="{{ url_for('register') }}">Get started</a>

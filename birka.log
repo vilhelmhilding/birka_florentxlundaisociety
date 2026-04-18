@@ -11,3 +11,9 @@
 [2026-04-18 11:04:36,672] INFO 127.0.0.1 - - [18/Apr/2026 11:04:36] "GET /?__debugger__=yes&cmd=resource&f=console.png HTTP/1.1" 200 -
 [2026-04-18 11:04:48,531] INFO  * Detected change in '/Users/vilhelmhilding/Desktop/match/Birka_new/app.py', reloading
 [2026-04-18 11:04:48,611] INFO  * Restarting with stat
+2026-04-18 11:50:19  INFO      === Birka starting ===
+2026-04-18 11:50:19  INFO      === Birka starting ===
+2026-04-18 11:50:23  INFO      → GET /  session_user=8  ip=127.0.0.1
+2026-04-18 11:50:23  INFO      ← 200 GET /
+2026-04-18 11:50:23  INFO      → GET /static/style.css  session_user=8  ip=127.0.0.1
+2026-04-18 11:50:23  INFO      ← 200 GET /static/style.css

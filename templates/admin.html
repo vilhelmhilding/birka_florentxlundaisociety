@@ -1,25 +1,29 @@
 {% extends 'base.html' %}
-{% block title %}Admin panel — Birka{% endblock %}
+{% block title %}Admin Panel{% endblock %}
 {% block content %}
 <div class="container" style="padding-bottom:48px;">
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;">
     <div>
       <h1>Admin panel</h1>
-      <p>{{ users|length }} users · {{ profiles|length }} seller profiles</p>
+      <p>{{ users|length }} users · {{ searches|length }} recent searches</p>
     </div>
     <a href="{{ url_for('admin_logout') }}" style="font-size:.875rem;color:var(--muted);">Sign out</a>
   </div>
 
   <div class="card" style="margin-bottom:24px;">
-    <h2 style="font-size:1rem;margin-bottom:14px;">Service catalogue</h2>
-    <div>{% for s in services %}<span class="tag">{{ s }}</span>{% endfor %}</div>
+    <h2 style="font-size:1rem;margin-bottom:16px;">Service catalogue</h2>
+    {% for s in services %}
+      <span class="tag">{{ s }}</span>
+    {% endfor %}
   </div>
 
   <div class="card" style="margin-bottom:24px;overflow-x:auto;">
     <h2 style="font-size:1rem;margin-bottom:16px;">Users</h2>
     <table>
       <thead>
-        <tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>City</th><th>Joined</th><th></th></tr>
+        <tr>
+          <th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>City</th><th>Joined</th><th>Services</th><th></th>
+        </tr>
       </thead>
       <tbody>
         {% for u in users %}
@@ -30,6 +34,13 @@
           <td><span class="badge badge-{{ u.role }}">{{ u.role }}</span></td>
           <td>{{ u.city or '—' }}</td>
           <td style="color:var(--muted);font-size:.8rem;">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
+          <td>
+            {% if u.seller_profile %}
+              {% for l in u.seller_profile.get_listings() %}
+                <span class="tag">{{ l.get('service','') }}</span>
+              {% endfor %}
+            {% endif %}
+          </td>
           <td>
             <form method="POST" action="{{ url_for('admin_delete_user', uid=u.id) }}"
                   onsubmit="return confirm('Delete {{ u.name }}?')">
@@ -43,25 +54,21 @@
   </div>
 
   <div class="card" style="overflow-x:auto;">
-    <h2 style="font-size:1rem;margin-bottom:16px;">Seller profiles</h2>
+    <h2 style="font-size:1rem;margin-bottom:16px;">Recent searches</h2>
     <table>
       <thead>
-        <tr><th>ID</th><th>Business</th><th>Services</th><th>Cities</th><th>Price</th><th></th></tr>
+        <tr><th>ID</th><th>Buyer</th><th>Query</th><th>Mapped service</th><th>City</th><th>Max price</th><th>Date</th></tr>
       </thead>
       <tbody>
-        {% for p in profiles %}
+        {% for s in searches %}
         <tr>
-          <td>{{ p.id }}</td>
-          <td>{{ p.business_name }}</td>
-          <td>{% for s in p.get_services() %}<span class="tag" style="font-size:.72rem;">{{ s }}</span>{% endfor %}</td>
-          <td>{% for c in p.get_cities() %}<span class="tag" style="background:#f0fdf4;color:#166534;font-size:.72rem;">{{ c }}</span>{% endfor %}</td>
-          <td style="white-space:nowrap;">{{ p.price_min }}–{{ p.price_max }}</td>
-          <td>
-            <form method="POST" action="{{ url_for('admin_delete_profile', pid=p.id) }}"
-                  onsubmit="return confirm('Delete {{ p.business_name }}?')">
-              <button class="btn btn-danger">Delete</button>
-            </form>
-          </td>
+          <td>{{ s.id }}</td>
+          <td>{{ s.buyer.name }}</td>
+          <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ s.raw_query }}</td>
+          <td>{% if s.mapped_service %}<span class="tag">{{ s.mapped_service }}</span>{% else %}—{% endif %}</td>
+          <td>{{ s.city or '—' }}</td>
+          <td>{{ s.price_max or '—' }}</td>
+          <td style="color:var(--muted);font-size:.8rem;">{{ s.created_at.strftime('%Y-%m-%d') }}</td>
         </tr>
         {% endfor %}
       </tbody>

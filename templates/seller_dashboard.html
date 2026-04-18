@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard — Birka{% endblock %}
+{% block content %}
+<div class="container-sm">
+  <div style="margin-bottom:1.5rem;">
+    <h1>Welcome, {{ user.name }}</h1>
+    <p class="muted">Your business profile on Birka.</p>
+  </div>
+
+  {% if not profile %}
+  <div class="card" style="text-align:center;padding:2.5rem;">
+    <p class="muted" style="margin-bottom:1rem;">You haven't set up your business profile yet.</p>
+    <a href="{{ url_for('seller_setup') }}" class="btn btn-primary">Set up profile</a>
+  </div>
+  {% else %}
+  <div class="card">
+    <div class="section-header">
+      <h2>{{ profile.business_name }}</h2>
+      <a href="{{ url_for('seller_setup') }}" class="btn btn-outline btn-sm">Edit</a>
+    </div>
+
+    {% if profile.summary %}
+      <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem;">{{ profile.summary }}</p>
+    {% endif %}
+
+    <div class="detail-row">
+      <span class="detail-label">Services</span>
+      <div>{% for s in profile.get_services() %}<span class="tag">{{ s }}</span>{% endfor %}</div>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Cities</span>
+      <div>{% for c in profile.get_cities() %}<span class="tag" style="background:#f0fdf4;color:#166534;">{{ c }}</span>{% endfor %}</div>
+    </div>
+    {% if profile.price_min or profile.price_max %}
+    <div class="detail-row">
+      <span class="detail-label">Price</span>
+      <span>{{ profile.price_min }} – {{ profile.price_max }} SEK</span>
+    </div>
+    {% endif %}
+
+    <hr class="divider">
+    <div class="detail-row">
+      <span class="detail-label">Email</span>
+      <span>{{ user.email }}</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Phone</span>
+      <span>{{ user.phone or '—' }}</span>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

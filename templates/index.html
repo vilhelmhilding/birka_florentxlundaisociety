@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Birka — Find local services{% endblock %}
+{% block content %}
+<div class="hero">
+  <h1>Find trusted local services</h1>
+  <p>Tell us what you need in plain language. We'll match you with the right professionals.</p>
+  <div class="hero-actions">
+    <a href="{{ url_for('register') }}?role=buyer" class="btn btn-primary">Find a service</a>
+    <a href="{{ url_for('register') }}?role=seller" class="btn btn-outline">List your business</a>
+  </div>
+</div>
+
+<div class="container">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1rem;">
+    <div class="card" style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:.5rem;">🔍</div>
+      <h3>Search naturally</h3>
+      <p class="muted">Describe what you need in your own words — no need for exact keywords.</p>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:.5rem;">📍</div>
+      <h3>Local matches</h3>
+      <p class="muted">Get matched with professionals in your area, filtered by price.</p>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:.5rem;">📞</div>
+      <h3>Direct contact</h3>
+      <p class="muted">See contact details instantly. No middlemen, no fees.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

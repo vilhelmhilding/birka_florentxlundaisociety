@@ -132,24 +132,29 @@ def parse_buyer_multi(query: str, default_city: str, existing: list[str]) -> dic
     Returns {services: [{service, price_max, requested_day}, ...], cities: [...], unrecognized_cities: [...]}
     """
     existing_str = ", ".join(existing) if existing else "(none yet)"
-    prompt = f"""You are a strict query mapper for a home and local services marketplace.
+    prompt = f"""You are a query mapper for a home and local services marketplace.
 
 Existing service categories: {existing_str}
 
 {CITY_RULES}
 {CATEGORY_RULES}
 
-From the buyer query below, extract ALL distinct services mentioned (e.g. "painter and electrician" → two services).
+From the buyer query below, extract or infer ALL distinct services the buyer needs:
+- Explicit services (e.g. "painter and electrician") → extract each as a separate entry.
+- Project or renovation descriptions (e.g. "renovate my kitchen", "fix bathroom", "build a deck") → infer the typical trades involved (e.g. kitchen renovation → plumber, electrician, carpenter, tiler, painter — use judgement on which are most likely needed).
+- Single clear service → single-element array.
+- Only use null for a service if the query has nothing to do with home or local services.
+
 1. services: JSON array — one object per distinct service:
-   - service: category string (reuse/create per rules), null if unclear
-   - price_max: integer SEK budget for this service (use shared budget if mentioned; null otherwise)
+   - service: category string (reuse/create per rules), null only if truly unrelated to home services
+   - price_max: integer SEK budget for this service (split shared budget evenly if applicable; null otherwise)
    - requested_day: lowercase weekday if mentioned, null otherwise
-   If only one service is mentioned, return a single-element array.
-2. cities: JSON array of Swedish cities shared across all services. Use [default_city] if none mentioned.
+2. cities: JSON array of Swedish cities. Use [default_city] if none mentioned.
 3. unrecognized_cities: cities that could not be matched. Empty array if all matched.
 
 Return ONLY valid JSON.
-Example: {{"services": [{{"service": "painter", "price_max": 5000, "requested_day": "sunday"}}, {{"service": "plumber", "price_max": null, "requested_day": "sunday"}}], "cities": ["Lund"], "unrecognized_cities": []}}
+Example explicit: {{"services": [{{"service": "painter", "price_max": 5000, "requested_day": "sunday"}}, {{"service": "plumber", "price_max": null, "requested_day": "sunday"}}], "cities": ["Lund"], "unrecognized_cities": []}}
+Example inferred: {{"services": [{{"service": "carpenter", "price_max": null, "requested_day": null}}, {{"service": "electrician", "price_max": null, "requested_day": null}}, {{"service": "painter", "price_max": null, "requested_day": null}}], "cities": ["Stockholm"], "unrecognized_cities": []}}
 
 Buyer query: {query}
 Default city (use only if no city found in query): {default_city}"""

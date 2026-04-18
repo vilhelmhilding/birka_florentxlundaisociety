@@ -76,16 +76,17 @@
   <div class="card" style="margin-bottom:24px;">
     <form method="POST" id="search-form">
       <div class="form-group" style="margin-bottom:12px;">
-        <textarea name="query" id="query" rows="3" autofocus
-          placeholder="E.g. painter and electrician in Lund and Malmö · budget 5 000 SEK · available on weekends">{{ search_data.get('_raw_query', '') }}</textarea>
+        <textarea name="query" id="query" rows="4" autofocus
+          placeholder="E.g. painter in Lund and Malmö, budget 5 000 SEK, available weekends
+Kitchen renovation in Stockholm — infers all relevant trades
+Electrician and carpenter in Göteborg, as soon as possible">{{ search_data.get('_raw_query', '') }}</textarea>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button type="submit" class="btn btn-primary">Search</button>
         <button type="button" class="btn" style="background:#f3f4f6;color:var(--muted);"
           onclick="document.getElementById('query').value=''">Clear</button>
         <label id="photo-btn" for="photo-input" class="btn"
-          style="background:#fff;color:var(--blue);border:1px solid var(--blue);cursor:pointer;"
-          title="Upload a photo — Claude will identify the service you need">
+          style="background:#eff6ff;color:var(--blue);cursor:pointer;display:inline-flex;align-items:center;margin:0;">
           Search by photo
         </label>
         <input type="file" id="photo-input" accept="image/jpeg,image/png,image/gif,image/webp" capture="environment" style="display:none;">
@@ -222,43 +223,41 @@
       {% endif %}
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat({{ multi_services_data | length }}, minmax(220px,1fr));gap:14px;overflow-x:auto;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">
       {% for svc in multi_services_data %}
       <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-        <div style="background:#6d28d9;color:#fff;padding:10px 14px;">
-          <div style="font-weight:700;font-size:.95rem;text-transform:capitalize;">{{ svc.service }}</div>
-          <div style="font-size:.75rem;opacity:.85;margin-top:2px;">
-            {{ svc.total }} seller{{ 's' if svc.total != 1 }}
-            {% if svc.price_max %} · max {{ svc.price_max }} SEK{% endif %}
-          </div>
+        <div style="background:#6d28d9;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:baseline;">
+          <span style="font-weight:700;font-size:.92rem;text-transform:capitalize;">{{ svc.service }}</span>
+          <span style="font-size:.73rem;opacity:.8;">
+            {{ svc.total }} seller{{ 's' if svc.total != 1 else '' }}{% if svc.price_max %} · max {{ svc.price_max }} SEK{% endif %}
+          </span>
         </div>
         <div style="padding:10px;">
           {% set col_sellers = [] %}
           {% for rows in svc.by_city.values() %}{% for item in rows %}{% if col_sellers.append(item) %}{% endif %}{% endfor %}{% endfor %}
           {% for item in svc.other %}{% if col_sellers.append(item) %}{% endif %}{% endfor %}
           {% if col_sellers %}
-            {% for seller, listing, flags in col_sellers[:5] %}
+            {% for seller, listing, flags in col_sellers[:4] %}
             <div style="{% if not loop.first %}border-top:1px solid var(--border);margin-top:8px;padding-top:8px;{% endif %}">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
-                <a href="{{ url_for('seller_profile', seller_id=seller.id) }}" style="text-decoration:none;color:inherit;">
-                <strong style="font-size:.85rem;">{{ seller.name }}</strong></a>
+                <a href="{{ url_for('seller_profile', seller_id=seller.id) }}" style="text-decoration:none;color:inherit;font-weight:600;font-size:.85rem;">{{ seller.name }}</a>
                 {% if seller.seller_profile.avg_rating %}
-                <span style="font-size:.75rem;color:#f59e0b;white-space:nowrap;">★ {{ "%.1f"|format(seller.seller_profile.avg_rating) }}</span>
+                <span style="font-size:.74rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;">★ {{ "%.1f"|format(seller.seller_profile.avg_rating) }}</span>
                 {% endif %}
               </div>
-              <div style="font-size:.78rem;color:var(--muted);margin:2px 0;">
-                {% if listing.get('is_quote') %}
-                  <span style="color:#6d28d9;font-weight:600;">Quote on request</span>
-                {% elif listing.get('price_min') %}
-                  from {{ listing.price_min }} SEK
-                {% endif %}
-                {% if flags.get('over_budget') %}<span style="color:#b45309;"> · over budget</span>{% endif %}
+              <div style="font-size:.78rem;color:var(--muted);margin:2px 0 4px;">
+                {% if listing.get('is_quote') %}<span style="color:#6d28d9;font-weight:600;">Quote on request</span>
+                {% elif listing.get('price_min') %}from {{ listing.price_min }} SEK{% endif %}
+                {% if flags.get('over_budget') %} · <span style="color:#b45309;">over budget</span>{% endif %}
               </div>
-              <form method="POST" action="{{ url_for('chat_start', seller_id=seller.id) }}" style="margin-top:4px;">
-                <button type="submit" class="btn btn-blue" style="font-size:.75rem;padding:3px 10px;">Message</button>
+              <form method="POST" action="{{ url_for('chat_start', seller_id=seller.id) }}">
+                <button type="submit" class="btn btn-blue" style="font-size:.74rem;padding:3px 10px;">Message</button>
               </form>
             </div>
             {% endfor %}
+            {% if col_sellers|length > 4 %}
+            <p style="font-size:.76rem;color:var(--muted);margin-top:8px;text-align:center;">+{{ col_sellers|length - 4 }} more</p>
+            {% endif %}
           {% else %}
             <p style="font-size:.82rem;color:var(--muted);text-align:center;padding:20px 0;">No sellers found</p>
           {% endif %}

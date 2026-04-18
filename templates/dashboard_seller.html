@@ -1,64 +1,60 @@
 {% extends "base.html" %}
-{% block title %}Seller Dashboard{% endblock %}
+{% block title %}Dashboard{% endblock %}
 {% block content %}
-<div class="container" style="padding-bottom:60px;">
-  <div class="page-header">
-    <h1>Your business profile</h1>
-    <p>Describe your services in plain language — include all cities you operate in.</p>
+{% set p = user.seller_profile %}
+{% set listings = p.get_listings() %}
+{% set cities = p.get_cities() %}
+
+<div class="container" style="padding:32px 24px 60px;">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:28px;flex-wrap:wrap;">
+    <div style="max-width:580px;">
+      <h1 style="font-size:1.7rem;font-weight:800;letter-spacing:-.02em;line-height:1.2;">{{ user.name or 'Your business' }}</h1>
+      {% if p.profile_description %}
+      <p style="font-size:.95rem;color:var(--muted);margin-top:8px;line-height:1.65;">{{ p.profile_description }}</p>
+      {% else %}
+      <p style="font-size:.9rem;color:var(--muted);margin-top:8px;">No profile yet — <a href="{{ url_for('settings') }}">open Settings</a> to set up your business.</p>
+      {% endif %}
+    </div>
+    <a href="{{ url_for('settings') }}" class="btn" style="white-space:nowrap;flex-shrink:0;font-size:.85rem;">Settings</a>
   </div>
 
   <div style="display:grid;grid-template-columns:3fr 2fr;gap:20px;align-items:start;">
 
-    <!-- left: form + detected listings -->
+    <!-- Left column -->
     <div>
+      <!-- Services -->
       <div class="card">
-        <h2 style="font-size:1rem;margin-bottom:16px;">Business description</h2>
-        <form method="POST">
-          <div class="form-group">
-            <textarea name="description" rows="6" placeholder="E.g. We offer painting and plastering in Stockholm and Uppsala. Prices start at 3 000 SEK per room. Available weekdays and weekends.">{{ user.seller_profile.raw_description or '' }}</textarea>
+        <h2 style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:16px;">Services</h2>
+        {% if listings %}
+        <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          {% for l in listings %}
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 15px;min-width:120px;">
+            <p style="font-size:.9rem;font-weight:600;text-transform:capitalize;margin-bottom:3px;">{{ l.get('service','') }}</p>
+            <p style="font-size:.76rem;color:var(--muted);line-height:1.4;">
+              {%- if l.get('is_quote') -%}Quote on request
+              {%- elif l.get('price_min') -%}from {{ l.price_min }} SEK
+              {%- endif -%}
+              {%- if l.get('availability_days') -%}
+                {%- set days_short = {'monday':'Mo','tuesday':'Tu','wednesday':'We','thursday':'Th','friday':'Fr','saturday':'Sa','sunday':'Su'} -%}
+                {%- if l.get('is_quote') or l.get('price_min') %} · {% endif -%}
+                {{- l.availability_days | map('lower') | map(attribute=days_short) | join(' ') -}}
+              {%- endif -%}
+            </p>
           </div>
-          <div class="hint-box">
-            <div class="hint-box-label">Tips — what to include</div>
-            <div class="hint-chips">
-              <span class="hint-chip"><span class="hint-chip-label">Multiple services</span> "painting, plastering and tiling"</span>
-              <span class="hint-chip"><span class="hint-chip-label">Multiple cities</span> "Stockholm, Uppsala and Södertälje"</span>
-              <span class="hint-chip"><span class="hint-chip-label">Availability</span> "weekdays and Saturdays"</span>
-              <span class="hint-chip"><span class="hint-chip-label">Pricing</span> "from 2 500 SEK" or "quote on request"</span>
-            </div>
-          </div>
-          <button type="submit" class="btn btn-primary">Save &amp; analyse</button>
-        </form>
-      </div>
-
-      {% set listings = user.seller_profile.get_listings() %}
-      {% if listings %}
-      <div class="card" style="margin-top:16px;">
-        <h2 style="font-size:1rem;margin-bottom:14px;">Detected listings</h2>
-        {% for l in listings %}
-        <div style="{% if not loop.first %}margin-top:14px;padding-top:14px;border-top:1px solid var(--border);{% endif %}">
-          <span class="tag">{{ l.get('service','') }}</span>
-          {% if l.get('availability_days') %}
-          <p style="font-size:.85rem;color:var(--muted);margin-top:6px;">Available: {{ l.availability_days | join(', ') }}</p>
-          {% endif %}
-          {% if l.get('is_quote') %}
-          <p style="font-size:.85rem;color:#6d28d9;">Price: Quote on request</p>
-          {% elif l.get('price_min') or l.get('price_max') %}
-          <p style="font-size:.85rem;color:var(--muted);">
-            Price:
-            {% if l.get('price_min') %}from {{ l.price_min }} SEK{% endif %}
-            {% if l.get('price_max') %} – {{ l.price_max }} SEK{% endif %}
-          </p>
-          {% endif %}
+          {% endfor %}
         </div>
-        {% endfor %}
+        {% else %}
+        <p style="font-size:.88rem;color:var(--muted);">No services yet. Add your description in <a href="{{ url_for('settings') }}">Settings</a>.</p>
+        {% endif %}
       </div>
-      {% endif %}
 
-      <!-- Transaction history -->
+      <!-- Transactions -->
       {% set txns = user.transactions_as_seller | sort(attribute='created_at', reverse=True) %}
       {% if txns %}
       <div class="card" style="margin-top:16px;">
-        <h2 style="font-size:1rem;margin-bottom:14px;">Transactions</h2>
+        <h2 style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:14px;">Transactions</h2>
         {% for t in txns %}
         <div style="{% if not loop.first %}margin-top:12px;padding-top:12px;border-top:1px solid var(--border);{% endif %}display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <div>
@@ -66,7 +62,7 @@
             <p style="font-size:.78rem;color:var(--muted);">{{ t.buyer.name }} · {{ t.created_at.strftime('%d %b %Y') }}</p>
           </div>
           <div style="text-align:right;">
-            <p style="font-size:.95rem;font-weight:700;">{{ t.amount }} SEK</p>
+            <p style="font-size:.92rem;font-weight:700;">{{ t.amount }} SEK</p>
             {% if t.status == 'completed' %}
               <span class="badge" style="background:#dcfce7;color:#166534;">Paid</span>
             {% else %}
@@ -79,54 +75,60 @@
       {% endif %}
     </div>
 
-    <!-- right: profile + cities + rating -->
+    <!-- Right column -->
     <div>
+      <!-- Contact card -->
       <div class="card" style="margin-bottom:16px;">
-        <h2 style="font-size:1rem;margin-bottom:16px;">Profile</h2>
-        <div class="form-group">
-          <label>Name</label>
-          <p style="font-size:.95rem;">{{ user.name }}</p>
-        </div>
-        <div class="form-group">
-          <label>Email</label>
-          <p style="font-size:.95rem;">{{ user.email }}</p>
-        </div>
+        <h2 style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:14px;">Contact</h2>
         {% if user.phone %}
-        <div class="form-group">
-          <label>Phone</label>
-          <p style="font-size:.95rem;">{{ user.phone }}</p>
+        <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;">
+          <span style="color:var(--muted);width:18px;font-size:.85rem;margin-top:1px;">📞</span>
+          <p style="font-size:.9rem;">{{ user.phone }}</p>
         </div>
         {% endif %}
-        <div class="form-group" style="margin-bottom:0;">
-          <label>Cities</label>
-          {% set seller_cities = user.seller_profile.get_cities() %}
-          {% if seller_cities %}
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
-              {% for c in seller_cities %}
-                <span class="tag" style="font-size:.82rem;">{{ c | capitalize }}</span>
-              {% endfor %}
-            </div>
-          {% else %}
-            <p style="font-size:.95rem;">{{ user.city or '—' }}</p>
-          {% endif %}
+        {% if p.contact_email %}
+        <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;">
+          <span style="color:var(--muted);width:18px;font-size:.85rem;margin-top:1px;">✉</span>
+          <p style="font-size:.9rem;word-break:break-all;">{{ p.contact_email }}</p>
         </div>
+        {% endif %}
+        {% if p.website_url %}
+        <div style="display:flex;gap:10px;align-items:flex-start;">
+          <span style="color:var(--muted);width:18px;font-size:.85rem;margin-top:1px;">🌐</span>
+          <a href="{{ p.website_url }}" target="_blank" rel="noopener" style="font-size:.88rem;word-break:break-all;">{{ p.website_url | replace('https://','') | replace('http://','') | replace('www.','') }}</a>
+        </div>
+        {% endif %}
+        {% if not user.phone and not p.contact_email and not p.website_url %}
+        <p style="font-size:.85rem;color:var(--muted);">No contact info yet. <a href="{{ url_for('settings') }}">Add in Settings →</a></p>
+        {% endif %}
       </div>
 
-      <!-- Rating card -->
+      <!-- Service areas -->
+      {% if cities %}
+      <div class="card" style="margin-bottom:16px;">
+        <h2 style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:12px;">Service areas</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          {% for c in cities %}
+          <span class="tag" style="font-size:.82rem;">{{ c | capitalize }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Rating -->
       <div class="card">
-        <h2 style="font-size:1rem;margin-bottom:14px;">Your rating</h2>
-        {% set avg = user.seller_profile.avg_rating %}
-        {% set cnt = user.seller_profile.rating_count %}
+        <h2 style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:14px;">Rating</h2>
+        {% set avg = p.avg_rating %}{% set cnt = p.rating_count %}
         {% if avg %}
-          <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px;">
-            <span style="font-size:2.4rem;font-weight:800;letter-spacing:-.03em;">{{ "%.1f"|format(avg) }}</span>
-            <span style="font-size:1.4rem;color:#f59e0b;letter-spacing:1px;">
+          <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;">
+            <span style="font-size:2rem;font-weight:800;letter-spacing:-.03em;">{{ "%.1f"|format(avg) }}</span>
+            <span style="font-size:1.1rem;color:#f59e0b;letter-spacing:1px;">
               {% for i in range(1,6) %}{% if i <= avg|round(0,'floor')|int %}★{% else %}☆{% endif %}{% endfor %}
             </span>
           </div>
-          <p style="font-size:.85rem;color:var(--muted);">Based on {{ cnt }} anonymous rating{{ 's' if cnt != 1 else '' }}</p>
+          <p style="font-size:.82rem;color:var(--muted);">{{ cnt }} review{{ 's' if cnt != 1 }}</p>
         {% else %}
-          <p style="font-size:.9rem;color:var(--muted);">No ratings yet. Complete a transaction to get your first rating.</p>
+          <p style="font-size:.85rem;color:var(--muted);">No ratings yet.</p>
         {% endif %}
       </div>
     </div>

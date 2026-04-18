@@ -1,11 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Register{% endblock %}
+{% block title %}Create account{% endblock %}
 {% block content %}
-<div class="auth-wrap">
-  <h1>Create account</h1>
-  <p class="subtitle">Join the marketplace in seconds.</p>
+<div class="auth-wrap" style="max-width:480px;">
+  <h1 style="text-align:center;">Create account</h1>
+  <p class="subtitle" style="text-align:center;margin-bottom:28px;">Join the marketplace in seconds.</p>
 
-  <form method="POST">
+  <form method="POST" id="reg-form">
+    <!-- Role toggle -->
     <div class="form-group">
       <div class="role-toggle">
         <input type="radio" name="role" id="r-buyer" value="buyer"
@@ -17,32 +18,120 @@
       </div>
     </div>
 
-    <div class="form-group">
-      <label>Full name</label>
-      <input type="text" name="name" required placeholder="Jane Smith">
+    <!-- Seller setup path choice (hidden for buyers) -->
+    <div id="setup-choice" style="display:none;margin-bottom:20px;">
+      <p style="font-size:.82rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">How do you want to set up?</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <label id="card-manual" for="s-manual" style="display:block;border:2px solid var(--border);border-radius:var(--radius);padding:16px;cursor:pointer;transition:border-color .15s,background .15s;">
+          <input type="radio" name="setup" id="s-manual" value="manual" checked style="display:none;">
+          <p style="font-size:.92rem;font-weight:700;margin-bottom:4px;">Manual</p>
+          <p style="font-size:.78rem;color:var(--muted);line-height:1.4;">Fill in your details yourself</p>
+        </label>
+        <label id="card-website" for="s-website" style="display:block;border:2px solid var(--border);border-radius:var(--radius);padding:16px;cursor:pointer;transition:border-color .15s,background .15s;">
+          <input type="radio" name="setup" id="s-website" value="website" style="display:none;">
+          <p style="font-size:.92rem;font-weight:700;margin-bottom:4px;">From website</p>
+          <p style="font-size:.78rem;color:var(--muted);line-height:1.4;">Paste your URL — we'll build your profile automatically</p>
+        </label>
+      </div>
     </div>
+
+    <!-- Login credentials (always shown) -->
     <div class="form-group">
-      <label>Email</label>
-      <input type="email" name="email" required placeholder="jane@example.com">
-    </div>
-    <div class="form-group">
-      <label>Phone</label>
-      <input type="tel" name="phone" placeholder="+46 70 000 00 00">
-    </div>
-    <div class="form-group">
-      <label>City</label>
-      <input type="text" name="city" placeholder="Stockholm">
+      <label>Login email</label>
+      <input type="email" name="email" required placeholder="you@example.com">
     </div>
     <div class="form-group">
       <label>Password</label>
       <input type="password" name="password" required minlength="6" placeholder="Min. 6 characters">
     </div>
 
-    <button type="submit" class="btn btn-primary btn-full">Create account</button>
+    <!-- Manual fields (buyer always, seller if manual) -->
+    <div id="manual-fields">
+      <div class="form-group">
+        <label>Full name</label>
+        <input type="text" name="name" placeholder="Jane Smith">
+      </div>
+      <div class="form-group" id="phone-group">
+        <label>Phone</label>
+        <input type="tel" name="phone" placeholder="+46 70 000 00 00">
+      </div>
+      <div class="form-group" id="city-group">
+        <label>City</label>
+        <input type="text" name="city" placeholder="Stockholm">
+      </div>
+    </div>
+
+    <!-- Website URL field (seller + website setup only) -->
+    <div id="website-field" style="display:none;">
+      <div class="form-group">
+        <label>Your business website</label>
+        <input type="url" name="website_url" id="website-url-input" placeholder="https://www.yourcompany.se">
+        <p style="font-size:.78rem;color:var(--muted);margin-top:5px;">We'll crawl every page and build your entire profile automatically. Takes 1–3 min.</p>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-full" id="submit-btn">Create account</button>
   </form>
 
   <p style="margin-top:18px;font-size:.875rem;color:var(--muted);text-align:center;">
     Already have an account? <a href="{{ url_for('login') }}">Sign in</a>
   </p>
 </div>
+
+<style>
+#card-manual.selected, #card-website.selected {
+  border-color: var(--blue);
+  background: rgba(31,77,228,.04);
+}
+</style>
+
+<script>
+const roleInputs   = document.querySelectorAll('input[name="role"]');
+const setupInputs  = document.querySelectorAll('input[name="setup"]');
+const setupChoice  = document.getElementById('setup-choice');
+const manualFields = document.getElementById('manual-fields');
+const websiteField = document.getElementById('website-field');
+const cardManual   = document.getElementById('card-manual');
+const cardWebsite  = document.getElementById('card-website');
+const submitBtn    = document.getElementById('submit-btn');
+const phoneGroup   = document.getElementById('phone-group');
+const cityGroup    = document.getElementById('city-group');
+const nameInput    = document.querySelector('input[name="name"]');
+
+function updateUI() {
+  const isSeller  = document.getElementById('r-seller').checked;
+  const isWebsite = document.getElementById('s-website').checked;
+
+  setupChoice.style.display = isSeller ? 'block' : 'none';
+
+  if (isSeller && isWebsite) {
+    manualFields.style.display = 'none';
+    websiteField.style.display = 'block';
+    nameInput.required = false;
+    submitBtn.textContent = 'Create account & build profile →';
+  } else {
+    manualFields.style.display = 'block';
+    websiteField.style.display = 'none';
+    nameInput.required = !isSeller; // buyers must fill name, sellers optional (AI fills it)
+    submitBtn.textContent = 'Create account';
+  }
+
+  // Card selected state
+  cardManual.classList.toggle('selected', !isWebsite);
+  cardWebsite.classList.toggle('selected', isWebsite);
+
+  // Hide phone/city for buyers (keep them for manual sellers)
+  phoneGroup.style.display = 'block';
+  cityGroup.style.display  = 'block';
+}
+
+roleInputs.forEach(r  => r.addEventListener('change', updateUI));
+setupInputs.forEach(s => s.addEventListener('change', updateUI));
+
+// Card click
+cardManual.addEventListener('click',  () => { document.getElementById('s-manual').checked  = true; updateUI(); });
+cardWebsite.addEventListener('click', () => { document.getElementById('s-website').checked = true; updateUI(); });
+
+updateUI();
+</script>
 {% endblock %}

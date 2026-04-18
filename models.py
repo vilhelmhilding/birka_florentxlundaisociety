@@ -1,6 +1,9 @@
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timezone
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 import json
 
 db = SQLAlchemy()
@@ -27,7 +30,7 @@ class User(db.Model):
     name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(30))
     city = db.Column(db.String(100))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     seller_profile = db.relationship('SellerProfile', backref='user', uselist=False)
     searches = db.relationship('Search', backref='buyer', lazy=True)
@@ -43,13 +46,19 @@ class SellerProfile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     raw_description = db.Column(db.Text)
+    profile_description = db.Column(db.Text)
+    website_url = db.Column(db.Text)
+    website_pages_json = db.Column(db.Text)
+    website_page_count = db.Column(db.Integer, default=0)
+    website_scraped_at = db.Column(db.DateTime)
     city = db.Column(db.String(100))
     # listings: JSON array of {service, availability_days[], price_min, price_max}
     listings = db.Column(db.Text, default='[]')
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
     cities = db.Column(db.Text, default='[]')          # JSON list of city strings
     avg_rating = db.Column(db.Float, nullable=True)   # None = no ratings yet
     rating_count = db.Column(db.Integer, default=0)
+    contact_email = db.Column(db.String(120), nullable=True)
 
     def get_listings(self):
         return json.loads(self.listings or '[]')
@@ -84,14 +93,14 @@ class Search(db.Model):
     mapped_service = db.Column(db.String(100))
     city = db.Column(db.String(100))
     price_max = db.Column(db.Integer)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
 
 class Conversation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     buyer = db.relationship('User', foreign_keys=[buyer_id], backref='conversations_as_buyer')
     seller = db.relationship('User', foreign_keys=[seller_id], backref='conversations_as_seller')
@@ -113,7 +122,7 @@ class Message(db.Model):
     conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=False)
     sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     body = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     is_read = db.Column(db.Boolean, default=False)
     # 'text' | 'payment' | 'quote_request' | 'quote_response'
     message_type = db.Column(db.String(20), default='text')
@@ -132,7 +141,7 @@ class Transaction(db.Model):
     amount = db.Column(db.Integer, nullable=False)           # SEK
     description = db.Column(db.String(200), nullable=False)
     status = db.Column(db.String(20), default='pending')     # 'pending' | 'completed' | 'cancelled'
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     rated = db.Column(db.Boolean, default=False)
     rating = db.Column(db.Integer, nullable=True)            # 1–5, anonymous
 
@@ -141,13 +150,22 @@ class Transaction(db.Model):
     buyer = db.relationship('User', foreign_keys=[buyer_id], backref='transactions_as_buyer')
 
 
+class ScrapeCache(db.Model):
+    __tablename__ = "scrape_cache"
+    id = db.Column(db.Integer, primary_key=True)
+    url = db.Column(db.Text, nullable=False, unique=True)
+    pages_json = db.Column(db.Text, nullable=False)
+    page_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+
+
 class QuoteRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     buyer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     service = db.Column(db.String(80))
     cities = db.Column(db.Text, default='[]')  # JSON
     formatted_request = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     buyer = db.relationship('User', foreign_keys=[buyer_id], backref='quote_requests')
     responses = db.relationship('QuoteResponse', back_populates='request', cascade='all, delete-orphan')
@@ -162,7 +180,7 @@ class QuoteResponse(db.Model):
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     formatted_response = db.Column(db.Text)
     price_offered = db.Column(db.Integer, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     request = db.relationship('QuoteRequest', back_populates='responses')
     seller = db.relationship('User', foreign_keys=[seller_id], backref='quote_responses_given')

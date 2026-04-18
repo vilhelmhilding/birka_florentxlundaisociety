@@ -99,7 +99,7 @@ label {
   text-transform: uppercase;
   letter-spacing: .07em;
 }
-input[type=text], input[type=email], input[type=password], input[type=tel], textarea, select {
+input[type=text], input[type=email], input[type=password], input[type=tel], input[type=url], input[type=number], textarea, select {
   width: 100%;
   padding: 11px 14px;
   border: 1.5px solid var(--border);

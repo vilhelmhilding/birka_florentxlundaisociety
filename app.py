@@ -2,12 +2,14 @@ from dotenv import load_dotenv
 import os
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response, stream_with_context
 from models import db, User, SellerProfile, Search, Conversation, Message, Transaction, QuoteRequest, QuoteResponse, get_existing_services
-from llm import parse_seller, parse_buyer, match_sellers, format_quote_request, format_quote_response
+from llm import parse_seller, parse_buyer, match_sellers, format_quote_request, format_quote_response, description_from_website, summarise_to_profile, extract_contact_info
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+
+_setup_queues: dict = {}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
@@ -21,6 +23,12 @@ with app.app_context():
     with db.engine.connect() as _conn:
         for _stmt in [
             "ALTER TABLE message ADD COLUMN quote_request_id INTEGER",
+            "ALTER TABLE seller_profile ADD COLUMN profile_description TEXT",
+            "ALTER TABLE seller_profile ADD COLUMN website_url TEXT",
+            "ALTER TABLE seller_profile ADD COLUMN website_pages_json TEXT",
+            "ALTER TABLE seller_profile ADD COLUMN website_page_count INTEGER DEFAULT 0",
+            "ALTER TABLE seller_profile ADD COLUMN website_scraped_at DATETIME",
+            "ALTER TABLE seller_profile ADD COLUMN contact_email TEXT",
         ]:
             try:
                 _conn.execute(_text(_stmt))
@@ -106,31 +114,158 @@ def index():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
+        import queue as _qmod
+        import threading as _threading
         role  = request.form["role"]
         email = request.form["email"].lower().strip()
-        name  = request.form["name"].strip()
-        phone = request.form.get("phone", "").strip()
-        city  = request.form.get("city", "").strip()
-        log.info(f"REGISTER attempt  role={role}  email={email}  name={name}  city={city}")
+        setup = request.form.get("setup", "manual")  # "manual" | "website"
+        log.info(f"REGISTER attempt  role={role}  email={email}  setup={setup}")
 
         if User.query.filter_by(email=email).first():
             flash("Email already registered.")
             return redirect(url_for("register"))
 
-        user = User(email=email, role=role, name=name, phone=phone, city=city)
-        user.set_password(request.form["password"])
-        db.session.add(user)
-        db.session.flush()
+        if role == "seller" and setup == "website":
+            website_url = _normalise_url(request.form.get("website_url", "").strip())
+            if not website_url:
+                flash("Please enter a website URL.")
+                return redirect(url_for("register"))
 
-        if role == "seller":
+            user = User(email=email, role="seller", name="")
+            user.set_password(request.form["password"])
+            db.session.add(user)
+            db.session.flush()
             db.session.add(SellerProfile(user_id=user.id))
+            db.session.commit()
+            session["user_id"] = user.id
+            session["role"] = "seller"
+            log.info(f"REGISTER website-setup  user_id={user.id}  url={website_url}")
 
-        db.session.commit()
-        session["user_id"] = user.id
-        log.info(f"REGISTER success  user_id={user.id}  role={role}")
-        return redirect(url_for("dashboard"))
+            q: _qmod.Queue = _qmod.Queue()
+            _setup_queues[user.id] = q
+
+            uid = user.id
+            def run_setup(uid=uid, url=website_url):
+                with app.app_context():
+                    _q = _setup_queues.get(uid)
+                    try:
+                        from datetime import datetime as _dt, timezone as _tz
+                        from scrape import scrape_website, pages_to_text
+                        result = scrape_website(url, on_event=lambda evt: _q.put(evt))
+                        if not result["pages"]:
+                            _q.put({"type": "error", "message": "Could not read any pages from that URL."})
+                            return
+                        _prof = SellerProfile.query.filter_by(user_id=uid).first()
+                        _prof.website_url = url
+                        _prof.website_pages_json = json.dumps(result["pages"])
+                        _prof.website_page_count = len(result["pages"])
+                        _prof.website_scraped_at = _dt.now(_tz.utc).replace(tzinfo=None)
+                        db.session.commit()
+                        _q.put({"type": "analysing", "pages": len(result["pages"])})
+                        text_pages = pages_to_text(result["pages"])
+                        total_text = sum(len(p.get("text", "")) for p in text_pages)
+                        log.info(f"SETUP pages_to_text: {len(text_pages)}/{len(result['pages'])} pages kept, {total_text} chars")
+                        if not text_pages:
+                            log.error(f"SETUP: pages_to_text returned empty — all content filtered/deduplicated")
+                            _q.put({"type": "error", "message": "Could not extract text from scraped pages."})
+                            return
+                        try:
+                            desc = "".join(description_from_website(text_pages))
+                        except Exception as api_err:
+                            log.error(f"SETUP: description_from_website exception: {api_err}")
+                            _q.put({"type": "error", "message": f"AI analysis failed: {api_err}"})
+                            return
+                        log.info(f"SETUP: description generated, {len(desc)} chars")
+                        if not desc:
+                            log.error(f"SETUP: description empty — API returned nothing")
+                            _q.put({"type": "error", "message": "AI returned an empty description. Try again."})
+                            return
+                        _q.put({"type": "parsing"})
+                        _user = User.query.get(uid)
+                        parsed = parse_seller(desc, "", get_existing_services())
+                        _prof.raw_description = desc
+                        cities = [c for c in (parsed.get("cities") or []) if c]
+                        _prof.set_cities(cities)
+                        if cities:
+                            _prof.city = cities[0]
+                        _prof.set_listings(parsed.get("listings", []))
+                        _prof.profile_description = summarise_to_profile(desc)
+                        contact = extract_contact_info(desc)
+                        if contact.get("name"):
+                            _user.name = contact["name"]
+                        if contact.get("phone"):
+                            _user.phone = contact["phone"]
+                        if contact.get("email"):
+                            _prof.contact_email = contact["email"].lower().strip()
+                        db.session.commit()
+                        _q.put({"type": "done"})
+                    except Exception as e:
+                        log.error(f"SETUP error uid={uid}: {e}")
+                        if _q:
+                            _q.put({"type": "error", "message": "Something went wrong during setup."})
+                    finally:
+                        if _q:
+                            _q.put(None)
+                        _setup_queues.pop(uid, None)
+
+            _threading.Thread(target=run_setup, daemon=True).start()
+            return redirect(url_for("register_loading"))
+
+        else:
+            # Manual path (buyers + manual sellers)
+            name  = request.form.get("name", "").strip()
+            phone = request.form.get("phone", "").strip()
+            city  = request.form.get("city", "").strip()
+            user = User(email=email, role=role, name=name, phone=phone, city=city)
+            user.set_password(request.form["password"])
+            db.session.add(user)
+            db.session.flush()
+            if role == "seller":
+                db.session.add(SellerProfile(user_id=user.id))
+            db.session.commit()
+            session["user_id"] = user.id
+            session["role"] = role
+            log.info(f"REGISTER manual success  user_id={user.id}  role={role}")
+            return redirect(url_for("dashboard"))
 
     return render_template("register.html")
+
+
+@app.route("/register/loading")
+@login_required
+def register_loading():
+    return render_template("register_loading.html")
+
+
+@app.route("/register/progress")
+@login_required
+def register_progress():
+    import queue as _qmod
+    user = current_user()
+    uid = user.id
+
+    def generate():
+        q = _setup_queues.get(uid)
+        if q is None:
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+        while True:
+            try:
+                item = q.get(timeout=180)
+            except _qmod.Empty:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Setup timed out.'})}\n\n"
+                return
+            if item is None:
+                break
+            yield f"data: {json.dumps(item)}\n\n"
+            if item.get("type") in ("done", "error"):
+                break
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -139,6 +274,7 @@ def login():
         user = User.query.filter_by(email=email).first()
         if user and user.check_password(request.form["password"]):
             session["user_id"] = user.id
+            session["role"] = user.role
             log.info(f"LOGIN success  user_id={user.id}  role={user.role}")
             return redirect(url_for("dashboard"))
         log.warning(f"LOGIN failed  email={email}")
@@ -155,31 +291,13 @@ def logout():
 
 # ── dashboard ─────────────────────────────────────────────────────────────────
 
-@app.route("/dashboard", methods=["GET", "POST"])
+@app.route("/dashboard", methods=["GET", "POST"])  # POST kept for buyer search
 @login_required
 def dashboard():
     user = current_user()
     log.info(f"DASHBOARD  user_id={user.id}  role={user.role}  method={request.method}")
 
     if user.role == "seller":
-        if request.method == "POST":
-            desc = request.form["description"].strip()
-            parsed = parse_seller(desc, user.city or "", get_existing_services())
-            profile = user.seller_profile
-            profile.raw_description = desc
-            cities = parsed.get("cities") or ([parsed.get("city")] if parsed.get("city") else [])
-            cities = [c for c in cities if c]
-            if not cities and user.city:
-                cities = [user.city]
-            profile.city = cities[0] if cities else user.city
-            profile.set_cities(cities)
-            profile.set_listings(parsed.get("listings", []))
-            db.session.commit()
-            unrecognized = parsed.get("unrecognized_cities") or []
-            if unrecognized:
-                flash(f"Profile updated — but we couldn't recognise these locations: {', '.join(unrecognized)}. Please check the spelling.")
-            else:
-                flash("Profile updated.")
         return render_template("dashboard_seller.html", user=user)
 
     # buyer
@@ -268,6 +386,50 @@ def chat_start(seller_id):
         db.session.commit()
         log.info(f"CHAT new conversation  buyer={user.id}  seller={seller_id}  conv_id={conv.id}")
     return redirect(url_for("chat_view", conv_id=conv.id))
+
+
+# ── settings ──────────────────────────────────────────────────────────────────
+
+@app.route("/settings", methods=["GET", "POST"])
+@login_required
+def settings():
+    user = current_user()
+    if user.role != "seller":
+        return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+        action = request.form.get("action", "analyse")
+
+        if action == "analyse":
+            desc = request.form.get("description", "").strip()
+            parsed = parse_seller(desc, user.city or "", get_existing_services())
+            profile = user.seller_profile
+            profile.raw_description = desc
+            cities = parsed.get("cities") or ([parsed.get("city")] if parsed.get("city") else [])
+            cities = [c for c in cities if c]
+            if not cities and user.city:
+                cities = [user.city]
+            profile.city = cities[0] if cities else user.city
+            profile.set_cities(cities)
+            profile.set_listings(parsed.get("listings", []))
+            profile.profile_description = summarise_to_profile(desc)
+            contact = extract_contact_info(desc)
+            if contact.get("name"):
+                user.name = contact["name"]
+            if contact.get("phone"):
+                user.phone = contact["phone"]
+            if contact.get("email"):
+                profile.contact_email = contact["email"].lower().strip()
+            db.session.commit()
+            unrecognized = parsed.get("unrecognized_cities") or []
+            if unrecognized:
+                flash(f"Profile updated — but we couldn't recognise: {', '.join(unrecognized)}.")
+            else:
+                flash("Profile updated.")
+
+        return redirect(url_for("settings"))
+
+    return render_template("settings.html", user=user)
 
 
 @app.route("/chat")
@@ -582,6 +744,139 @@ def quote_delete(qr_id):
     db.session.commit()
     log.info(f"QUOTE_DELETE  buyer={user.id}  qr_id={qr_id}")
     return redirect(url_for("dashboard") + "?tab=quotes")
+
+
+# ── website import ───────────────────────────────────────────────────────────
+
+def _normalise_url(url: str) -> str:
+    url = url.strip().rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
+
+
+@app.route("/scrape")
+@login_required
+def scrape_url():
+    from datetime import datetime as _dt, timezone as _tz
+    import queue as _queue
+    import threading
+
+    user = current_user()
+    if user.role != "seller":
+        return jsonify({"error": "Only sellers can use this feature."}), 403
+    url = _normalise_url(request.args.get("url", "").strip())
+    if not url:
+        return jsonify({"error": "No URL provided."}), 400
+
+    log.info(f"SCRAPE start  user_id={user.id}  url={url}")
+
+    profile_id = user.seller_profile.id
+    progress_q: _queue.Queue = _queue.Queue()
+
+    def run_fresh():
+        try:
+            from scrape import scrape_website
+
+            result = scrape_website(url, on_event=lambda evt: progress_q.put(evt))
+
+            if not result["pages"]:
+                progress_q.put({"type": "error",
+                                "message": "Could not read any content from that URL."})
+                return
+
+            with app.app_context():
+                p = SellerProfile.query.get(profile_id)
+                p.website_url = url
+                p.website_pages_json = json.dumps(result["pages"])
+                p.website_page_count = len(result["pages"])
+                p.website_scraped_at = _dt.now(_tz.utc).replace(tzinfo=None)
+                db.session.commit()
+                log.info(f"SCRAPE saved  profile={profile_id}  pages={len(result['pages'])}  url={url}")
+
+            progress_q.put({"type": "done", "pages_saved": len(result["pages"])})
+        except Exception as e:
+            log.error(f"SCRAPE error  user_id={user.id}  url={url}  error={e}")
+            progress_q.put({"type": "error",
+                            "message": "Something went wrong while reading the website."})
+        finally:
+            progress_q.put(None)
+
+    threading.Thread(target=run_fresh, daemon=True).start()
+
+    def generate():
+        while True:
+            item = progress_q.get()
+            if item is None:
+                break
+            yield f"data: {json.dumps(item)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/website/describe")
+@login_required
+def website_describe():
+    user = current_user()
+    if user.role != "seller":
+        return jsonify({"error": "Only sellers can use this feature."}), 403
+
+    profile = user.seller_profile
+    if not profile.website_pages_json:
+        return jsonify({"error": "No stored pages. Scrape a website first."}), 400
+
+    pages = json.loads(profile.website_pages_json)
+
+    def generate():
+        try:
+            from scrape import pages_to_text
+            text_pages = pages_to_text(pages)
+            total_text = sum(len(p.get("text", "")) for p in text_pages)
+            log.info(f"DESCRIBE pages_to_text: {len(text_pages)}/{len(pages)} pages kept, {total_text} chars  user={user.id}")
+            if not text_pages:
+                log.error(f"DESCRIBE: pages_to_text empty  user={user.id}")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Could not extract text from stored pages.'})}\n\n"
+                return
+            chunk_count = 0
+            for chunk in description_from_website(text_pages):
+                chunk_count += 1
+                yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
+            log.info(f"DESCRIBE done: {chunk_count} chunks  user={user.id}")
+            if chunk_count == 0:
+                log.error(f"DESCRIBE: API returned 0 chunks  user={user.id}")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI returned an empty description. Try again.'})}\n\n"
+                return
+            yield f"data: {json.dumps({'type': 'done', 'pages_read': len(pages)})}\n\n"
+        except Exception as e:
+            log.error(f"WEBSITE DESCRIBE error  user_id={user.id}  error={e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Something went wrong.'})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/website/delete", methods=["POST"])
+@login_required
+def website_delete():
+    user = current_user()
+    if user.role != "seller":
+        return redirect(url_for("dashboard"))
+    p = user.seller_profile
+    p.website_url = None
+    p.website_pages_json = None
+    p.website_page_count = 0
+    p.website_scraped_at = None
+    db.session.commit()
+    log.info(f"WEBSITE DELETE  user_id={user.id}")
+    flash("Stored website data deleted.")
+    return redirect(url_for("dashboard"))
 
 
 if __name__ == "__main__":

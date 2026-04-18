@@ -1,62 +1,70 @@
 {% extends 'base.html' %}
-{% block title %}Search — Birka{% endblock %}
+{% block title %}Find a service — Birka{% endblock %}
 {% block content %}
-<div class="container">
-  <div style="margin-bottom:1.5rem;">
-    <h1>Find a service</h1>
-    <p class="muted">Describe what you need in plain language.</p>
+<div class="container" style="padding-bottom:60px;">
+  <div class="page-header">
+    <h1>What do you need?</h1>
+    <p>Write in plain language — include the service, city, and your budget if you have one.</p>
   </div>
 
-  <form method="POST">
-    <div class="search-bar">
-      <input type="text" name="query" value="{{ query }}" required autofocus
-             placeholder="e.g. someone to paint my apartment in Stockholm, budget around 5000 SEK">
+  <div class="card" style="margin-bottom:24px;">
+    <form method="POST" id="search-form">
+      <div class="form-group" style="margin-bottom:12px;">
+        <textarea name="query" id="query" rows="3" autofocus
+          placeholder="E.g. I need a painter in Stockholm, budget around 5 000 SEK">{{ query }}</textarea>
+      </div>
+      <div class="hint-box">
+        <div class="hint-box-label">You can also include</div>
+        <div class="hint-chips">
+          <span class="hint-chip"><span class="hint-chip-label">Multiple cities</span> "painter in Stockholm and Uppsala"</span>
+          <span class="hint-chip"><span class="hint-chip-label">Budget</span> "budget 5 000 SEK"</span>
+          <span class="hint-chip"><span class="hint-chip-label">Timing</span> "available on weekends"</span>
+        </div>
+      </div>
       <button type="submit" class="btn btn-primary">Search</button>
-    </div>
-    <p class="prompt-hint" style="margin-top:.5rem;">
-      Include what you need, your city, and an optional budget.
-    </p>
-  </form>
+    </form>
+  </div>
+
   <script>
-    document.querySelector('input[name="query"]').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); this.closest('form').submit(); }
+    document.getElementById('query').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('search-form').submit(); }
     });
   </script>
 
   {% if query %}
     {% if parsed and parsed.services %}
-    <div style="margin-top:1rem;">
-      <span class="muted" style="font-size:.85rem;">Matched categories: </span>
-      {% for s in parsed.services %}<span class="tag">{{ s }}</span>{% endfor %}
-      {% if parsed.city %}<span class="tag" style="background:#f0fdf4;color:#166534;">{{ parsed.city }}</span>{% endif %}
-      {% if parsed.max_price %}<span class="tag" style="background:#fef9c3;color:#854d0e;">max {{ parsed.max_price }} SEK</span>{% endif %}
+    <div class="search-banner">
+      <strong>Matched:</strong> {{ parsed.services | join(', ') }}
+      {% if parsed.city %} · {{ parsed.city }}{% endif %}
+      {% if parsed.max_price %} · max {{ parsed.max_price }} SEK{% endif %}
+      <p>{{ results | length }} result{{ 's' if results | length != 1 else '' }}</p>
     </div>
     {% endif %}
 
-    <div class="results-grid">
-      {% if results %}
-        {% for p in results %}
-        <div class="result-card">
-          <div class="result-info">
-            <h3>{{ p.business_name }}</h3>
-            {% if p.summary %}<p class="muted" style="font-size:.88rem;margin-top:.2rem;">{{ p.summary }}</p>{% endif %}
-            <div style="margin-top:.5rem;">
-              {% for s in p.get_services() %}<span class="tag">{{ s }}</span>{% endfor %}
-              {% for c in p.get_cities() %}<span class="tag" style="background:#f0fdf4;color:#166534;">{{ c }}</span>{% endfor %}
-            </div>
-            {% if p.price_min or p.price_max %}
-              <p class="price-range">{{ p.price_min }} – {{ p.price_max }} SEK</p>
-            {% endif %}
-          </div>
-          <a href="{{ url_for('profile', seller_id=p.id) }}" class="btn btn-outline btn-sm" style="white-space:nowrap;">View profile</a>
+    {% if results %}
+      {% for p in results %}
+      <div class="result-card">
+        <h3>{{ p.business_name }}</h3>
+        <div class="result-meta">
+          {% for c in p.get_cities() %}{{ c | capitalize }}{% if not loop.last %}, {% endif %}{% endfor %}
+          {% if p.price_min or p.price_max %} · {{ p.price_min }} – {{ p.price_max }} SEK{% endif %}
         </div>
-        {% endfor %}
-      {% else %}
-        <div class="card" style="text-align:center;color:var(--muted);padding:2rem;">
-          No matches found. Try rephrasing or broadening your search.
+        {% if p.summary %}<p style="font-size:.875rem;color:var(--muted);margin-bottom:10px;">{{ p.summary }}</p>{% endif %}
+        <div>
+          {% for s in p.get_services() %}<span class="tag">{{ s }}</span>{% endfor %}
         </div>
-      {% endif %}
-    </div>
+        <div class="contact-info">
+          <span>{{ p.user.email }}</span>
+          {% if p.user.phone %}<span>{{ p.user.phone }}</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">
+        <div class="empty-icon">🔍</div>
+        <p>No matches found. Try rephrasing or broadening your search.</p>
+      </div>
+    {% endif %}
   {% endif %}
 </div>
 {% endblock %}
